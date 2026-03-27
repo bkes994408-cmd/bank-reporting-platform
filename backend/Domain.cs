@@ -104,14 +104,56 @@ public static class SecurityHelpers
 
     public static string EncryptAtRest(string plain)
     {
-        var bytes = Encoding.UTF8.GetBytes(plain);
-        return Convert.ToBase64String(bytes.Reverse().ToArray());
+        var key = GetMasterKey();
+        var nonce = RandomNumberGenerator.GetBytes(12);
+        var plaintext = Encoding.UTF8.GetBytes(plain);
+        var ciphertext = new byte[plaintext.Length];
+        var tag = new byte[16];
+
+        using var aes = new AesGcm(key, 16);
+        aes.Encrypt(nonce, plaintext, ciphertext, tag);
+
+        var payload = new byte[nonce.Length + tag.Length + ciphertext.Length];
+        Buffer.BlockCopy(nonce, 0, payload, 0, nonce.Length);
+        Buffer.BlockCopy(tag, 0, payload, nonce.Length, tag.Length);
+        Buffer.BlockCopy(ciphertext, 0, payload, nonce.Length + tag.Length, ciphertext.Length);
+        return Convert.ToBase64String(payload);
     }
 
     public static string DecryptAtRest(string encrypted)
     {
-        var bytes = Convert.FromBase64String(encrypted).Reverse().ToArray();
-        return Encoding.UTF8.GetString(bytes);
+        var key = GetMasterKey();
+        var payload = Convert.FromBase64String(encrypted);
+        if (payload.Length < 28) throw new CryptographicException("Invalid ciphertext payload.");
+
+        var nonce = payload.AsSpan(0, 12);
+        var tag = payload.AsSpan(12, 16);
+        var ciphertext = payload.AsSpan(28);
+        var plaintext = new byte[ciphertext.Length];
+
+        using var aes = new AesGcm(key, 16);
+        aes.Decrypt(nonce, ciphertext, tag, plaintext);
+        return Encoding.UTF8.GetString(plaintext);
+    }
+
+    private static byte[] GetMasterKey()
+    {
+        var raw = Environment.GetEnvironmentVariable("REPORTING_MASTER_KEY");
+        if (string.IsNullOrWhiteSpace(raw))
+            throw new InvalidOperationException("REPORTING_MASTER_KEY is required for at-rest encryption.");
+
+        try
+        {
+            var key = Convert.FromBase64String(raw);
+            if (key.Length != 32) throw new InvalidOperationException("REPORTING_MASTER_KEY must decode to 32 bytes.");
+            return key;
+        }
+        catch (FormatException)
+        {
+            var key = Encoding.UTF8.GetBytes(raw);
+            if (key.Length != 32) throw new InvalidOperationException("REPORTING_MASTER_KEY must be a 32-byte UTF-8 string or base64(32 bytes).");
+            return key;
+        }
     }
 
     public static string BuildCsv(JsonDocument payload)
