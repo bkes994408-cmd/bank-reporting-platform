@@ -25,3 +25,12 @@ frontend/dist/
 
 # OS
 .DS_Store
+
+# Local configuration / secrets
+**/appsettings.Local.json
+**/appsettings.*.local.json
+.env
+.env.*
+
+# Local runtime state (may contain sensitive data)
+backend/data/
