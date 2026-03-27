@@ -45,4 +45,57 @@ public class SmokeTests
         var secret = SecurityHelpers.NewTotpSecret();
         Assert.False(SecurityHelpers.VerifyTotp(secret, "000000"));
     }
+
+    [Fact]
+    public void SessionStore_RevokeToken_InvalidatesSessionAndTracksJti()
+    {
+        var store = new SessionStore();
+        var token = "token-abc";
+        var userId = Guid.NewGuid();
+        var expiresAt = DateTimeOffset.UtcNow.AddMinutes(10);
+        store.Add(token, userId, DateTimeOffset.UtcNow, expiresAt, "jti-1");
+
+        Assert.True(store.TryGetUserId(token, out var resolvedUser));
+        Assert.Equal(userId, resolvedUser);
+
+        store.RevokeToken(token, DateTimeOffset.UtcNow);
+
+        Assert.False(store.TryGetUserId(token, out _));
+        Assert.True(store.IsJtiRevoked("jti-1"));
+    }
+
+    [Fact]
+    public void SessionStore_RevokeUserSessions_RevokesAllActiveSessionsForUser()
+    {
+        var store = new SessionStore();
+        var target = Guid.NewGuid();
+        var other = Guid.NewGuid();
+        var expiresAt = DateTimeOffset.UtcNow.AddMinutes(10);
+
+        store.Add("token-1", target, DateTimeOffset.UtcNow, expiresAt, "jti-target-1");
+        store.Add("token-2", target, DateTimeOffset.UtcNow, expiresAt, "jti-target-2");
+        store.Add("token-3", other, DateTimeOffset.UtcNow, expiresAt, "jti-other");
+
+        var count = store.RevokeUserSessions(target, DateTimeOffset.UtcNow);
+        Assert.Equal(2, count);
+
+        Assert.False(store.TryGetUserId("token-1", out _));
+        Assert.False(store.TryGetUserId("token-2", out _));
+        Assert.True(store.TryGetUserId("token-3", out var resolvedOther));
+        Assert.Equal(other, resolvedOther);
+        Assert.True(store.IsJtiRevoked("jti-target-1"));
+        Assert.True(store.IsJtiRevoked("jti-target-2"));
+        Assert.False(store.IsJtiRevoked("jti-other"));
+    }
+
+    [Fact]
+    public void PasswordHistory_PreventsPasswordReuse()
+    {
+        var old1 = SecurityHelpers.HashPassword("Old#Password123");
+        var old2 = SecurityHelpers.HashPassword("Another#Password456");
+        var history = new List<string> { old1, old2 };
+
+        Assert.Contains(history, h => SecurityHelpers.VerifyPassword("Old#Password123", h));
+        Assert.DoesNotContain(history, h => SecurityHelpers.VerifyPassword("BrandNew#Password789", h));
+    }
 }
