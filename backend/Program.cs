@@ -1,4 +1,6 @@
 using BankReporting.Api;
+using Microsoft.AspNetCore.HttpOverrides;
+using System.Net;
 using System.Text.Json;
 using System.Threading.RateLimiting;
 
@@ -38,6 +40,18 @@ builder.Services.AddRateLimiter(options =>
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase);
 
 var app = builder.Build();
+
+var forwardedHeadersOptions = BuildForwardedHeadersOptions(app.Configuration);
+if (forwardedHeadersOptions is not null)
+{
+    app.UseForwardedHeaders(forwardedHeadersOptions);
+}
+
+var enableHttpsRedirect = app.Configuration.GetValue<bool?>("ENABLE_HTTPS_REDIRECT") ?? !app.Environment.IsDevelopment();
+if (enableHttpsRedirect)
+{
+    app.UseHttpsRedirection();
+}
 
 app.UseRateLimiter();
 app.Use(async (ctx, next) =>
@@ -433,6 +447,48 @@ static void Seed(AppState db)
         var v = new ReportVersion(Guid.NewGuid(), code, "1.0.0", new DateOnly(2026, 1, 1), "seed", true, fields, schema, "{}");
         db.ReportDefinitions[code] = new ReportDefinition(code, name, code == "AI863" ? "Granular" : "Monthly", 15, $"/api/report/{code.ToLowerInvariant()}", true, new() { v });
     }
+}
+
+
+
+static ForwardedHeadersOptions? BuildForwardedHeadersOptions(IConfiguration config)
+{
+    var enabled = config.GetValue<bool?>("ENABLE_FORWARDED_HEADERS") ?? true;
+    if (!enabled) return null;
+
+    var options = new ForwardedHeadersOptions
+    {
+        ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
+        ForwardLimit = config.GetValue<int?>("FORWARDED_HEADERS_FORWARD_LIMIT") ?? 1,
+        RequireHeaderSymmetry = false
+    };
+
+    var proxyIps = (config["FORWARDED_HEADERS_TRUSTED_PROXIES"] ?? string.Empty)
+        .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+    foreach (var ip in proxyIps)
+    {
+        if (IPAddress.TryParse(ip, out var parsed))
+            options.KnownProxies.Add(parsed);
+    }
+
+    var proxyNetworks = (config["FORWARDED_HEADERS_TRUSTED_NETWORKS"] ?? string.Empty)
+        .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+    foreach (var network in proxyNetworks)
+    {
+        var parts = network.Split('/', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 2 && IPAddress.TryParse(parts[0], out var prefix) && int.TryParse(parts[1], out var prefixLength))
+            options.KnownIPNetworks.Add(new System.Net.IPNetwork(prefix, prefixLength));
+    }
+
+    // Sensible defaults for common reverse-proxy/container networks.
+    if (options.KnownProxies.Count == 0 && options.KnownIPNetworks.Count == 1)
+    {
+        options.KnownIPNetworks.Add(new System.Net.IPNetwork(IPAddress.Parse("10.0.0.0"), 8));
+        options.KnownIPNetworks.Add(new System.Net.IPNetwork(IPAddress.Parse("172.16.0.0"), 12));
+        options.KnownIPNetworks.Add(new System.Net.IPNetwork(IPAddress.Parse("192.168.0.0"), 16));
+    }
+
+    return options;
 }
 
 public record RegisterRequest(string Name, string Email, string Password, string InstitutionCode, string Department, string Title, bool IsAdUser = false);

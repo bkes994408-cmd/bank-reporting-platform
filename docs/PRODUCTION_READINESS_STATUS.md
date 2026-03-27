@@ -53,3 +53,13 @@ For SQL Server mode:
 Optional:
 - `JWT_ISSUER`, `JWT_AUDIENCE`, `JWT_TTL_MINUTES`
 - `NOTIFICATION_WEBHOOK_URL`
+- `ENABLE_HTTPS_REDIRECT` (default: enabled outside Development)
+- `ENABLE_FORWARDED_HEADERS` (default: `true`)
+- `FORWARDED_HEADERS_TRUSTED_PROXIES` / `FORWARDED_HEADERS_TRUSTED_NETWORKS`
+
+## Reverse proxy / HTTPS behavior
+
+- Backend now applies `UseForwardedHeaders` before rate-limiting and HTTPS redirection.
+- Default trusted ranges include loopback + private container/LAN ranges (`10/8`, `172.16/12`, `192.168/16`) so common Nginx/compose deployments work out-of-box.
+- For stricter production hardening, set explicit `FORWARDED_HEADERS_TRUSTED_PROXIES` or `FORWARDED_HEADERS_TRUSTED_NETWORKS`.
+- If TLS termination is handled upstream, keep `ENABLE_HTTPS_REDIRECT=true` and ensure proxy sends `X-Forwarded-Proto: https`.
