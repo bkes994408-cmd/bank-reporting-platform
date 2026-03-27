@@ -18,6 +18,8 @@
 ### 核心流程
 - JWT + 安全 Cookie 登入驗證
 - MFA / TOTP 啟用與驗證
+- JWT `jti` 撤銷與 session 失效流程
+- 密碼變更與密碼歷史重複防止
 - 報表定義與版本管理
 - 申報流程：草稿 → 待審 → 審核 → 通過／退回
 - 歷史查詢與明細查詢
@@ -37,10 +39,12 @@
 - AES-256-GCM at-rest 加密
 
 ### 管理介面
-- 最小可用管理前端
-- 登入
-- 查詢使用者
-- 查詢稽核紀錄
+- 管理前端控制台（單頁模式）
+- 登入 / 登出 / session handling
+- 總覽頁（KPI + 最近稽核事件）
+- 使用者管理（搜尋、篩選、核准 / 拒絕）
+- Session 撤銷操作
+- 稽核紀錄查詢與篩選
 
 ## 專案現況
 這個 repo 仍在持續開發中，但已經具備：
@@ -63,10 +67,12 @@
 - 核心 API
 - session / auth
 - MFA
+- JWT `jti` 撤銷 / token revocation
+- 密碼變更與密碼歷史重複防止
 - AD mock 整合
 - 匯出
 - 通知
-- 最小 admin UI
+- 完整化的 admin console
 - SQL Server persistence
 - 安全強化
 
@@ -102,7 +108,8 @@
 ## 驗證
 目前已通過：
 - `dotnet test`
-- 前端 build
+- `dotnet test backend.tests/BankReporting.Tests.csproj`
+- 前端 build（`npm run build`）
 
 ## 備註
 - Repo 名稱：`bank-reporting-platform`
