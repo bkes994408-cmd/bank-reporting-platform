@@ -489,7 +489,8 @@ internal static class SnapshotMapper
             state.Notifications.ToArray(),
             state.AuditLogs.ToArray(),
             sessions.Snapshot().ToArray(),
-            sessions.RevokedSnapshot().ToArray());
+            sessions.RevokedSnapshot().ToArray(),
+            state.MfaPolicy);
 
     public static void Apply(AppStateSnapshot snapshot, AppState state, SessionStore sessions)
     {
@@ -514,6 +515,7 @@ internal static class SnapshotMapper
         foreach (var i in snapshot.AuditLogs) state.AuditLogs.Add(i);
 
         sessions.Restore(snapshot.Sessions, snapshot.RevokedTokens);
+        state.MfaPolicy = snapshot.MfaPolicy ?? MfaPolicy.Default;
     }
 }
 
@@ -581,7 +583,8 @@ public record AppStateSnapshot(
     Notification[] Notifications,
     AuditLog[] AuditLogs,
     SessionInfo[] Sessions,
-    RevokedTokenInfo[]? RevokedTokens = null);
+    RevokedTokenInfo[]? RevokedTokens = null,
+    MfaPolicy? MfaPolicy = null);
 
 public record SubmissionSnapshot(
     Guid Id,

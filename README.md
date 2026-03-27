@@ -18,6 +18,7 @@
 ### 核心流程
 - JWT + 安全 Cookie 登入驗證
 - MFA / TOTP 啟用與驗證
+- MFA 管理政策（可設定 scope、授權端點強制與不合規 session 撤銷）
 - JWT `jti` 撤銷與 session 失效流程
 - 密碼變更與密碼歷史重複防止
 - 報表定義與版本管理
@@ -43,6 +44,7 @@
 - 登入 / 登出 / session handling
 - 總覽頁（KPI + 最近稽核事件）
 - 使用者管理（搜尋、篩選、核准 / 拒絕）
+- MFA 政策管理（scope / endpoint enforcement / session revocation）
 - Session 撤銷操作
 - 稽核紀錄查詢與篩選
 
@@ -126,6 +128,18 @@
   - `backend/database/sqlserver/0003_create_schema_migrations.sql`
 - 啟動時會自動依序執行未套用 migration，並寫入 `dbo.SchemaMigrations`（migration id / script name / SHA-256 checksum / applied time）。
 - 若資料庫 migration 與程式碼不一致（缺檔或 checksum 變更），服務會 fail-fast 停止啟動。
+
+## MFA 管理政策 API（第一階段）
+- `GET /admin/security/mfa-policy`
+  - 讀取目前 MFA 管理政策（僅 Admin）
+- `PUT /admin/security/mfa-policy`
+  - 更新政策（僅 Admin）
+  - 請求欄位：
+    - `scope`: `Disabled` / `AdminOnly` / `AdminAndSupervisor` / `AllUsers`
+    - `enforceOnPrivilegedEndpoints`: 是否在授權端點強制 MFA 合規
+    - `revokeNonCompliantSessions`: 是否立即撤銷不合規使用者 sessions
+
+> 備註：第一階段採「授權端點強制」，不改動現有 JWT / session 發放模型，降低相容性風險。
 
 ## 驗證
 目前已通過：

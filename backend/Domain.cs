@@ -10,6 +10,7 @@ public enum UserRole { Admin, Supervisor, Clerk, ReadOnly }
 public enum AccountStatus { PendingEmailVerification, PendingApproval, Active, Rejected, Disabled, Locked }
 public enum SubmissionStatus { Draft, Pending, Rejected, Approved, Submitting, Submitted, Failed }
 public enum KeyType { JwePublic, ApiToken }
+public enum MfaPolicyScope { Disabled, AdminOnly, AdminAndSupervisor, AllUsers }
 
 public record User(
     Guid Id,
@@ -57,6 +58,30 @@ public record CryptoKey(Guid KeyId, string InstitutionCode, KeyType KeyType, str
 public record Notification(Guid Id, Guid UserId, string Type, string Message, bool Read, DateTimeOffset CreatedAt);
 public record AuditLog(Guid Id, DateTimeOffset At, Guid? UserId, string UserName, string Action, string EntityType, string EntityId, string Summary, string Ip);
 
+public record MfaPolicy(
+    MfaPolicyScope Scope,
+    bool EnforceOnPrivilegedEndpoints,
+    DateTimeOffset UpdatedAt,
+    Guid? UpdatedBy,
+    string? Note)
+{
+    public static MfaPolicy Default => new(MfaPolicyScope.Disabled, false, DateTimeOffset.UtcNow, null, null);
+
+    public bool RequiresMfa(UserRole role)
+    {
+        if (!EnforceOnPrivilegedEndpoints) return false;
+
+        return Scope switch
+        {
+            MfaPolicyScope.Disabled => false,
+            MfaPolicyScope.AdminOnly => role == UserRole.Admin,
+            MfaPolicyScope.AdminAndSupervisor => role is UserRole.Admin or UserRole.Supervisor,
+            MfaPolicyScope.AllUsers => true,
+            _ => false
+        };
+    }
+}
+
 public sealed class AppState
 {
     public ConcurrentDictionary<Guid, User> Users { get; } = new();
@@ -66,6 +91,7 @@ public sealed class AppState
     public ConcurrentDictionary<Guid, CryptoKey> Keys { get; } = new();
     public ConcurrentBag<Notification> Notifications { get; private set; } = new();
     public ConcurrentBag<AuditLog> AuditLogs { get; private set; } = new();
+    public MfaPolicy MfaPolicy { get; set; } = MfaPolicy.Default;
 
     public void ResetBags()
     {

@@ -109,6 +109,23 @@
             <option value="Locked">Locked</option>
           </select>
         </div>
+        <div class="card" style="margin-bottom:10px">
+          <div class="row">
+            <div class="grow">
+              <strong>MFA 管理政策</strong>
+              <div id="mfaPolicyHint" class="muted">載入中...</div>
+            </div>
+            <select id="mfaScope">
+              <option value="Disabled">Disabled</option>
+              <option value="AdminOnly">AdminOnly</option>
+              <option value="AdminAndSupervisor">AdminAndSupervisor</option>
+              <option value="AllUsers">AllUsers</option>
+            </select>
+            <label class="muted"><input id="mfaEnforce" type="checkbox" /> 強制套用在授權端點</label>
+            <label class="muted"><input id="mfaRevoke" type="checkbox" /> 立即撤銷不合規 sessions</label>
+            <button class="primary" onclick="updateMfaPolicy()">更新政策</button>
+          </div>
+        </div>
         <div id="usersTableWrap"><table id="usersTable"></table></div>
       </div>
 
@@ -135,6 +152,7 @@
     let currentUser = null;
     let users = [];
     let audits = [];
+    let mfaPolicy = null;
 
     const byId = (id) => document.getElementById(id);
     const esc = (s) => (s ?? '').toString().replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]));
@@ -210,6 +228,14 @@
     async function loadUsers() {
       users = await api('/admin/users');
       renderUsers();
+    }
+
+    async function loadMfaPolicy() {
+      mfaPolicy = await api('/admin/security/mfa-policy');
+      byId('mfaScope').value = mfaPolicy.scope || 'Disabled';
+      byId('mfaEnforce').checked = !!mfaPolicy.enforceOnPrivilegedEndpoints;
+      byId('mfaRevoke').checked = false;
+      byId('mfaPolicyHint').textContent = `目前：scope=${mfaPolicy.scope} / enforce=${mfaPolicy.enforceOnPrivilegedEndpoints ? 'on' : 'off'}`;
     }
 
     async function loadAudit() {
@@ -334,9 +360,28 @@
       }
     }
 
+    async function updateMfaPolicy() {
+      try {
+        const payload = {
+          scope: byId('mfaScope').value,
+          enforceOnPrivilegedEndpoints: byId('mfaEnforce').checked,
+          revokeNonCompliantSessions: byId('mfaRevoke').checked
+        };
+        const data = await api('/admin/security/mfa-policy', {
+          method: 'PUT',
+          body: JSON.stringify(payload)
+        });
+        toast(`MFA 政策已更新，撤銷 sessions: ${data.revokedCount}`);
+        await refreshAll();
+      } catch (e) {
+        toast(`更新政策失敗：${e.message}`, true);
+      }
+    }
+
     async function refreshAll() {
       try {
         await loadUsers();
+        await loadMfaPolicy();
         await loadAudit();
       } catch (e) {
         toast(`資料載入失敗：${e.message}`, true);
