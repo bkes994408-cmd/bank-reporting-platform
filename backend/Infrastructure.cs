@@ -19,6 +19,32 @@ public interface IStateRepository
     void Save(AppState state, SessionStore sessions);
 }
 
+public static class ConfigurationExtensions
+{
+    public static string? GetString(this IConfiguration cfg, params string[] keys)
+    {
+        foreach (var key in keys)
+        {
+            var value = cfg[key];
+            if (!string.IsNullOrWhiteSpace(value)) return value;
+        }
+
+        return null;
+    }
+
+    public static int? GetInt(this IConfiguration cfg, params string[] keys)
+    {
+        var raw = cfg.GetString(keys);
+        return int.TryParse(raw, out var value) ? value : null;
+    }
+
+    public static bool? GetBool(this IConfiguration cfg, params string[] keys)
+    {
+        var raw = cfg.GetString(keys);
+        return bool.TryParse(raw, out var value) ? value : null;
+    }
+}
+
 public sealed class JwtTokenService
 {
     private readonly byte[] _key;
@@ -30,13 +56,13 @@ public sealed class JwtTokenService
 
     public JwtTokenService(IConfiguration cfg)
     {
-        var secret = cfg["JWT_SECRET"];
+        var secret = cfg.GetString("Security:Jwt:Secret", "JWT_SECRET");
         if (string.IsNullOrWhiteSpace(secret) || secret.Length < 32)
             throw new InvalidOperationException("JWT_SECRET must be configured and at least 32 chars for production use.");
 
-        _issuer = cfg["JWT_ISSUER"] ?? "bank-reporting";
-        _audience = cfg["JWT_AUDIENCE"] ?? "bank-reporting-web";
-        _ttl = TimeSpan.FromMinutes(int.TryParse(cfg["JWT_TTL_MINUTES"], out var mins) ? mins : 30);
+        _issuer = cfg.GetString("Security:Jwt:Issuer", "JWT_ISSUER") ?? "bank-reporting";
+        _audience = cfg.GetString("Security:Jwt:Audience", "JWT_AUDIENCE") ?? "bank-reporting-web";
+        _ttl = TimeSpan.FromMinutes(cfg.GetInt("Security:Jwt:TtlMinutes", "JWT_TTL_MINUTES") ?? 30);
         _key = Encoding.UTF8.GetBytes(secret);
 
         _validation = new TokenValidationParameters
@@ -183,7 +209,7 @@ public sealed class JsonStateRepository : IStateRepository
 
     public JsonStateRepository(IConfiguration cfg)
     {
-        _path = cfg["PERSISTENCE_FILE"] ?? Path.Combine(AppContext.BaseDirectory, "data", "app-state.json");
+        _path = cfg.GetString("Persistence:Json:FilePath", "PERSISTENCE_FILE") ?? Path.Combine(AppContext.BaseDirectory, "data", "app-state.json");
         Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
     }
 
@@ -221,11 +247,10 @@ public sealed class SqlStateRepository : IStateRepository
 
     public SqlStateRepository(IConfiguration cfg)
     {
-        _connectionString = cfg.GetConnectionString("Default")
-            ?? cfg["SQLSERVER_CONNECTION_STRING"]
+        _connectionString = cfg.GetString("ConnectionStrings:Default", "Persistence:SqlServer:ConnectionString", "SQLSERVER_CONNECTION_STRING")
             ?? throw new InvalidOperationException("SQL Server persistence enabled but no connection string provided.");
 
-        _migrationsPath = cfg["SQLSERVER_MIGRATIONS_PATH"]
+        _migrationsPath = cfg.GetString("Persistence:SqlServer:MigrationsPath", "SQLSERVER_MIGRATIONS_PATH")
             ?? Path.Combine(AppContext.BaseDirectory, "database", "sqlserver");
     }
 
@@ -502,7 +527,7 @@ public sealed class CompositeNotificationSink
     {
         _logger = logger;
         _httpClient = factory.CreateClient();
-        _webhookUrl = cfg["NOTIFICATION_WEBHOOK_URL"];
+        _webhookUrl = cfg.GetString("Notifications:WebhookUrl", "NOTIFICATION_WEBHOOK_URL");
     }
 
     public async Task PublishAsync(Notification notification, CancellationToken ct = default)
@@ -530,8 +555,8 @@ public sealed class AdAuthenticator
 
     public AdAuthenticator(IConfiguration cfg)
     {
-        Enabled = bool.TryParse(cfg["AD_ENABLED"], out var enabled) && enabled;
-        var raw = cfg["AD_MOCK_USERS_JSON"];
+        Enabled = cfg.GetBool("Auth:Ad:Enabled", "AD_ENABLED") ?? false;
+        var raw = cfg.GetString("Auth:Ad:MockUsersJson", "AD_MOCK_USERS_JSON");
         _users = string.IsNullOrWhiteSpace(raw)
             ? new(StringComparer.OrdinalIgnoreCase)
             : JsonSerializer.Deserialize<Dictionary<string, string>>(raw) ?? new(StringComparer.OrdinalIgnoreCase);

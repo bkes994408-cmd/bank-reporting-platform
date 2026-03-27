@@ -11,7 +11,7 @@ builder.Services.AddSingleton<JwtTokenService>();
 builder.Services.AddSingleton<IStateRepository>(sp =>
 {
     var cfg = sp.GetRequiredService<IConfiguration>();
-    var provider = (cfg["PERSISTENCE_PROVIDER"] ?? "json").Trim().ToLowerInvariant();
+    var provider = (cfg.GetString("Persistence:Provider", "PERSISTENCE_PROVIDER") ?? "json").Trim().ToLowerInvariant();
     return provider is "sql" or "sqlserver" ? new SqlStateRepository(cfg) : new JsonStateRepository(cfg);
 });
 builder.Services.AddSingleton<AdAuthenticator>();
@@ -47,7 +47,7 @@ if (forwardedHeadersOptions is not null)
     app.UseForwardedHeaders(forwardedHeadersOptions);
 }
 
-var enableHttpsRedirect = app.Configuration.GetValue<bool?>("ENABLE_HTTPS_REDIRECT") ?? !app.Environment.IsDevelopment();
+var enableHttpsRedirect = app.Configuration.GetBool("Security:HttpsRedirection:Enabled", "ENABLE_HTTPS_REDIRECT") ?? !app.Environment.IsDevelopment();
 if (enableHttpsRedirect)
 {
     app.UseHttpsRedirection();
@@ -454,17 +454,17 @@ static void Seed(AppState db)
 
 static ForwardedHeadersOptions? BuildForwardedHeadersOptions(IConfiguration config)
 {
-    var enabled = config.GetValue<bool?>("ENABLE_FORWARDED_HEADERS") ?? true;
+    var enabled = config.GetBool("Security:ForwardedHeaders:Enabled", "ENABLE_FORWARDED_HEADERS") ?? true;
     if (!enabled) return null;
 
     var options = new ForwardedHeadersOptions
     {
         ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
-        ForwardLimit = config.GetValue<int?>("FORWARDED_HEADERS_FORWARD_LIMIT") ?? 1,
+        ForwardLimit = config.GetInt("Security:ForwardedHeaders:ForwardLimit", "FORWARDED_HEADERS_FORWARD_LIMIT") ?? 1,
         RequireHeaderSymmetry = false
     };
 
-    var proxyIps = (config["FORWARDED_HEADERS_TRUSTED_PROXIES"] ?? string.Empty)
+    var proxyIps = (config.GetString("Security:ForwardedHeaders:TrustedProxies", "FORWARDED_HEADERS_TRUSTED_PROXIES") ?? string.Empty)
         .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
     foreach (var ip in proxyIps)
     {
@@ -472,7 +472,7 @@ static ForwardedHeadersOptions? BuildForwardedHeadersOptions(IConfiguration conf
             options.KnownProxies.Add(parsed);
     }
 
-    var proxyNetworks = (config["FORWARDED_HEADERS_TRUSTED_NETWORKS"] ?? string.Empty)
+    var proxyNetworks = (config.GetString("Security:ForwardedHeaders:TrustedNetworks", "FORWARDED_HEADERS_TRUSTED_NETWORKS") ?? string.Empty)
         .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
     foreach (var network in proxyNetworks)
     {

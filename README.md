@@ -90,31 +90,42 @@
 ### 前端
 主要入口在 `frontend/`。
 
-## 環境變數
-### 必要
-- `JWT_SECRET`
-- `REPORTING_MASTER_KEY`
+## 設定檔與環境變數
+專案已改為標準 ASP.NET Core 設定流程，載入順序如下（後者覆蓋前者）：
+1. `backend/appsettings.json`
+2. `backend/appsettings.{Environment}.json`（例如 Development）
+3. Environment Variables
+
+### 內建設定檔
+- `backend/appsettings.json`：共用且可提交的安全預設值（不含密鑰）
+- `backend/appsettings.Development.json`：本機開發用預設（僅 dev 假資料）
+- `backend/appsettings.Example.json`：給部署與新環境初始化參考的範本
+
+### 重要安全原則
+- **不要把真實密鑰寫進 Git 版本控制**。
+- 生產環境請用環境變數（或 Secret Manager / Key Vault）覆蓋，例如：
+  - `Security__Jwt__Secret`
+  - `REPORTING_MASTER_KEY`
+  - `ConnectionStrings__Default`
+
+### 相容舊版環境變數（仍支援）
+為了平滑遷移，目前仍可使用舊 key，系統會自動 fallback：
+- JWT：`JWT_SECRET`、`JWT_ISSUER`、`JWT_AUDIENCE`、`JWT_TTL_MINUTES`
+- Persistence：`PERSISTENCE_PROVIDER`、`PERSISTENCE_FILE`、`SQLSERVER_CONNECTION_STRING`、`SQLSERVER_MIGRATIONS_PATH`
+- Security：`ENABLE_HTTPS_REDIRECT`、`ENABLE_FORWARDED_HEADERS`、`FORWARDED_HEADERS_FORWARD_LIMIT`、`FORWARDED_HEADERS_TRUSTED_PROXIES`、`FORWARDED_HEADERS_TRUSTED_NETWORKS`
+- Notification：`NOTIFICATION_WEBHOOK_URL`
+- AD mock：`AD_ENABLED`、`AD_MOCK_USERS_JSON`
 
 ### SQL Server 模式
-- `PERSISTENCE_PROVIDER=sqlserver`
-- `ConnectionStrings__Default` 或 `SQLSERVER_CONNECTION_STRING`
+- 建議設定：
+  - `Persistence__Provider=sqlserver`
+  - `ConnectionStrings__Default=<your-connection-string>`
 - migration SQL 檔案（source of truth）：
   - `backend/database/sqlserver/0001_create_app_state_snapshots.sql`
   - `backend/database/sqlserver/0002_seed_initial_snapshot_row.sql`
   - `backend/database/sqlserver/0003_create_schema_migrations.sql`
-- 啟動時會自動依序執行未套用 migration，並寫入 `dbo.SchemaMigrations`（含 migration id / script name / SHA-256 checksum / applied time）。
-- 啟動 mismatch guard：若資料庫記錄的 migration 在程式碼中不存在，或已套用 migration 的 SQL 檔 checksum 改變，服務會在啟動階段直接 fail-fast，避免在不一致 schema 上繼續運行。
-
-### 選用
-- `JWT_ISSUER`
-- `JWT_AUDIENCE`
-- `JWT_TTL_MINUTES`
-- `NOTIFICATION_WEBHOOK_URL`
-- `SQLSERVER_MIGRATIONS_PATH`（選填，預設為執行檔旁 `database/sqlserver`）
-- `ENABLE_HTTPS_REDIRECT`（預設：Development 關閉、其他環境啟用）
-- `ENABLE_FORWARDED_HEADERS`（預設：`true`，可在非反向代理環境關閉）
-- `FORWARDED_HEADERS_TRUSTED_PROXIES`（逗號分隔 IP，例如 `10.0.0.2,10.0.0.3`）
-- `FORWARDED_HEADERS_TRUSTED_NETWORKS`（逗號分隔 CIDR，例如 `10.0.0.0/8,192.168.0.0/16`）
+- 啟動時會自動依序執行未套用 migration，並寫入 `dbo.SchemaMigrations`（migration id / script name / SHA-256 checksum / applied time）。
+- 若資料庫 migration 與程式碼不一致（缺檔或 checksum 變更），服務會 fail-fast 停止啟動。
 
 ## 驗證
 目前已通過：
