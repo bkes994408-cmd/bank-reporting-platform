@@ -98,6 +98,9 @@
 ### SQL Server 模式
 - `PERSISTENCE_PROVIDER=sqlserver`
 - `ConnectionStrings__Default` 或 `SQLSERVER_CONNECTION_STRING`
+- 初始建庫 / migration SQL 檔案：
+  - `backend/database/sqlserver/0001_create_app_state_snapshots.sql`
+  - `backend/database/sqlserver/0002_seed_initial_snapshot_row.sql`
 
 ### 選用
 - `JWT_ISSUER`
