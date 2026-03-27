@@ -37,7 +37,21 @@ Source baseline: `docs/SRS_v1.2_銀行監理資料數位申報平台.docx`, `doc
   - fallback remains JSON persistence.
 - Documented next-step target: expand from snapshot persistence toward normalized schema slices (`auth`/`report`/`key`/`audit`).
 
-### 5) Validation status
+### 5) Forced MFA / management policy controls (slice 1)
+- Added MFA policy model (`MfaPolicy`) with controllable scope:
+  - `Disabled`
+  - `AdminOnly`
+  - `AdminAndSupervisor`
+  - `AllUsers`
+- Added admin policy endpoints:
+  - `GET /admin/security/mfa-policy`
+  - `PUT /admin/security/mfa-policy`
+- Added optional remediation toggle when updating policy:
+  - `revokeNonCompliantSessions=true` revokes active sessions for users that newly violate policy.
+- Enforcement is applied at authorization helper layer (`RequireRole`/`RequireAny`) so current JWT/session issuance flow remains compatible.
+- Login response now returns MFA policy compliance hint payload for UI guidance.
+
+### 6) Validation status
 - `dotnet test` passed: **9/9**.
 
 ## Config checklist for secured runtime

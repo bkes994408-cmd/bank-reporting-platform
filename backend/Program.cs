@@ -108,6 +108,7 @@ app.MapPost("/auth/login", (AppState state, SessionStore sessionStore, JwtTokenS
 
     if (user.Status is not AccountStatus.Active and not AccountStatus.PendingApproval) return Results.BadRequest($"Account status: {user.Status}");
 
+    var mfaRequiredByPolicy = RequiresMfaPolicy(state, user);
     if (user.MfaEnabled)
     {
         if (string.IsNullOrWhiteSpace(req.MfaCode) || string.IsNullOrWhiteSpace(user.MfaSecret) || !SecurityHelpers.VerifyTotp(user.MfaSecret, req.MfaCode))
@@ -133,7 +134,8 @@ app.MapPost("/auth/login", (AppState state, SessionStore sessionStore, JwtTokenS
     {
         token = issued.Token,
         expiresInSeconds = (int)(issued.ExpiresAt - DateTimeOffset.UtcNow).TotalSeconds,
-        user = new { user.Id, user.Name, user.Email, role = user.Role.ToString(), user.InstitutionCode, status = user.Status.ToString(), user.MfaEnabled, user.IsAdUser }
+        user = new { user.Id, user.Name, user.Email, role = user.Role.ToString(), user.InstitutionCode, status = user.Status.ToString(), user.MfaEnabled, user.IsAdUser },
+        mfa = new { requiredByPolicy = mfaRequiredByPolicy, compliant = !mfaRequiredByPolicy || user.MfaEnabled, scope = state.MfaPolicy.Scope.ToString(), enforcementEnabled = state.MfaPolicy.EnforceOnPrivilegedEndpoints }
     });
 });
 
@@ -234,6 +236,34 @@ app.MapGet("/admin/users", (AppState state, SessionStore sessionStore, JwtTokenS
     var admin = RequireRole(state, sessionStore, tokenService, ctx, UserRole.Admin);
     if (admin is null) return Results.Unauthorized();
     return Results.Ok(state.Users.Values.OrderBy(x => x.Email));
+});
+
+app.MapGet("/admin/security/mfa-policy", (AppState state, SessionStore sessionStore, JwtTokenService tokenService, HttpContext ctx) =>
+{
+    var admin = RequireRole(state, sessionStore, tokenService, ctx, UserRole.Admin);
+    if (admin is null) return Results.Unauthorized();
+    return Results.Ok(state.MfaPolicy);
+});
+
+app.MapPut("/admin/security/mfa-policy", (AppState state, SessionStore sessionStore, JwtTokenService tokenService, IStateRepository storage, UpdateMfaPolicyRequest req, HttpContext ctx) =>
+{
+    var admin = RequireRole(state, sessionStore, tokenService, ctx, UserRole.Admin);
+    if (admin is null) return Results.Unauthorized();
+
+    var updated = new MfaPolicy(req.Scope, req.EnforceOnPrivilegedEndpoints, DateTimeOffset.UtcNow, admin.Id, string.IsNullOrWhiteSpace(req.Note) ? null : req.Note.Trim());
+    state.MfaPolicy = updated;
+
+    var revokedCount = 0;
+    if (req.RevokeNonCompliantSessions)
+    {
+        var impactedUsers = state.Users.Values.Where(u => updated.RequiresMfa(u.Role) && !u.MfaEnabled).Select(u => u.Id).ToArray();
+        foreach (var userId in impactedUsers)
+            revokedCount += sessionStore.RevokeUserSessions(userId, DateTimeOffset.UtcNow);
+    }
+
+    Audit(state, admin.Id, admin.Name, "AUTH-006", "SecurityPolicy", "MFA", $"Updated MFA policy: scope={updated.Scope}, enforce={updated.EnforceOnPrivilegedEndpoints}, revokedSessions={revokedCount}", ctx);
+    Persist(state, sessions, storage);
+    return Results.Ok(new { policy = updated, revokedCount });
 });
 
 app.MapGet("/report-definitions", (AppState state) => Results.Ok(state.ReportDefinitions.Values.OrderBy(x => x.ReportCode)));
@@ -349,13 +379,13 @@ static void Persist(AppState db, SessionStore sessions, IStateRepository repo) =
 static User? RequireRole(AppState db, SessionStore sessions, JwtTokenService jwt, HttpContext ctx, UserRole role)
 {
     var u = CurrentUser(db, sessions, jwt, ctx);
-    return u is not null && u.Role == role ? u : null;
+    return u is not null && u.Role == role && IsMfaCompliant(db, u) ? u : null;
 }
 
 static User? RequireAny(AppState db, SessionStore sessions, JwtTokenService jwt, HttpContext ctx, params UserRole[] roles)
 {
     var u = CurrentUser(db, sessions, jwt, ctx);
-    return u is not null && roles.Contains(u.Role) ? u : null;
+    return u is not null && roles.Contains(u.Role) && IsMfaCompliant(db, u) ? u : null;
 }
 
 static User? CurrentUser(AppState db, SessionStore sessions, JwtTokenService jwt, HttpContext ctx)
@@ -384,6 +414,17 @@ static string? ExtractToken(HttpContext ctx)
 
     if (ctx.Request.Cookies.TryGetValue("access_token", out var cookie) && !string.IsNullOrWhiteSpace(cookie)) return cookie;
     return null;
+}
+
+static bool IsMfaCompliant(AppState db, User user)
+{
+    return !RequiresMfaPolicy(db, user) || user.MfaEnabled;
+}
+
+static bool RequiresMfaPolicy(AppState db, User user)
+{
+    var policy = db.MfaPolicy ?? MfaPolicy.Default;
+    return policy.RequiresMfa(user.Role);
 }
 
 static bool CanDownload(User user, ReportSubmission sub) => user.Role switch
@@ -497,5 +538,6 @@ public record LoginRequest(string Email, string Password, string? MfaCode = null
 public record EnableMfaRequest(string Code);
 public record ChangePasswordRequest(string CurrentPassword, string NewPassword);
 public record ApproveUserRequest(bool Approve, UserRole Role, string InstitutionCode);
+public record UpdateMfaPolicyRequest(MfaPolicyScope Scope, bool EnforceOnPrivilegedEndpoints, bool RevokeNonCompliantSessions = false, string? Note = null);
 public record CreateSubmissionRequest(string ReportCode, string Period, JsonElement Payload);
 public record ReviewRequest(bool Approve, string? Reason);

@@ -98,4 +98,17 @@ public class SmokeTests
         Assert.Contains(history, h => SecurityHelpers.VerifyPassword("Old#Password123", h));
         Assert.DoesNotContain(history, h => SecurityHelpers.VerifyPassword("BrandNew#Password789", h));
     }
+
+    [Theory]
+    [InlineData(MfaPolicyScope.Disabled, true, UserRole.Admin, false)]
+    [InlineData(MfaPolicyScope.AdminOnly, true, UserRole.Admin, true)]
+    [InlineData(MfaPolicyScope.AdminOnly, true, UserRole.Clerk, false)]
+    [InlineData(MfaPolicyScope.AdminAndSupervisor, true, UserRole.Supervisor, true)]
+    [InlineData(MfaPolicyScope.AllUsers, true, UserRole.ReadOnly, true)]
+    [InlineData(MfaPolicyScope.AllUsers, false, UserRole.Admin, false)]
+    public void MfaPolicy_RequiresMfa_Works(MfaPolicyScope scope, bool enforce, UserRole role, bool expected)
+    {
+        var policy = new MfaPolicy(scope, enforce, DateTimeOffset.UtcNow, null, null);
+        Assert.Equal(expected, policy.RequiresMfa(role));
+    }
 }
