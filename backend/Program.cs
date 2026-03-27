@@ -69,6 +69,7 @@ var db = app.Services.GetRequiredService<AppState>();
 var sessions = app.Services.GetRequiredService<SessionStore>();
 var repo = app.Services.GetRequiredService<IStateRepository>();
 var jwt = app.Services.GetRequiredService<JwtTokenService>();
+repo.EnsureReady();
 if (!repo.TryLoad(db, sessions)) Seed(db);
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok", ts = DateTimeOffset.UtcNow }));

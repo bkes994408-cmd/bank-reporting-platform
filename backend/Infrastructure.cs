@@ -5,6 +5,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Data.SqlClient;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
@@ -13,6 +14,7 @@ namespace BankReporting.Api;
 
 public interface IStateRepository
 {
+    void EnsureReady();
     bool TryLoad(AppState state, SessionStore sessions);
     void Save(AppState state, SessionStore sessions);
 }
@@ -185,6 +187,11 @@ public sealed class JsonStateRepository : IStateRepository
         Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
     }
 
+    public void EnsureReady()
+    {
+        // no-op for file persistence
+    }
+
     public bool TryLoad(AppState state, SessionStore sessions)
     {
         if (!File.Exists(_path)) return false;
@@ -206,7 +213,10 @@ public sealed class JsonStateRepository : IStateRepository
 
 public sealed class SqlStateRepository : IStateRepository
 {
+    private static readonly Regex MigrationFilePattern = new("^(?<id>\\d{4})_.*\\.sql$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     private readonly string _connectionString;
+    private readonly string _migrationsPath;
     private readonly JsonSerializerOptions _options = new(JsonSerializerDefaults.Web);
 
     public SqlStateRepository(IConfiguration cfg)
@@ -214,13 +224,32 @@ public sealed class SqlStateRepository : IStateRepository
         _connectionString = cfg.GetConnectionString("Default")
             ?? cfg["SQLSERVER_CONNECTION_STRING"]
             ?? throw new InvalidOperationException("SQL Server persistence enabled but no connection string provided.");
+
+        _migrationsPath = cfg["SQLSERVER_MIGRATIONS_PATH"]
+            ?? Path.Combine(AppContext.BaseDirectory, "database", "sqlserver");
+    }
+
+    public void EnsureReady()
+    {
+        using var conn = new SqlConnection(_connectionString);
+        conn.Open();
+        EnsureMigrationMetadataTables(conn);
+
+        var manifest = ReadMigrationManifest(_migrationsPath);
+        if (manifest.Count == 0)
+            throw new InvalidOperationException($"No SQL migration scripts found at '{_migrationsPath}'.");
+
+        BootstrapLegacyTracking(conn, manifest);
+
+        var applied = ReadAppliedMigrations(conn);
+        GuardForMismatches(applied, manifest);
+        ApplyPendingMigrations(conn, applied, manifest);
     }
 
     public bool TryLoad(AppState state, SessionStore sessions)
     {
         using var conn = new SqlConnection(_connectionString);
         conn.Open();
-        EnsureSchema(conn);
 
         using var cmd = new SqlCommand("SELECT Payload FROM dbo.AppStateSnapshots WHERE Id = 1", conn);
         var payload = cmd.ExecuteScalar() as string;
@@ -237,7 +266,6 @@ public sealed class SqlStateRepository : IStateRepository
     {
         using var conn = new SqlConnection(_connectionString);
         conn.Open();
-        EnsureSchema(conn);
 
         var snapshot = SnapshotMapper.Build(state, sessions);
         var payload = JsonSerializer.Serialize(snapshot, _options);
@@ -257,19 +285,168 @@ WHEN NOT MATCHED THEN
         tx.Commit();
     }
 
-    private static void EnsureSchema(SqlConnection conn)
+    private static void EnsureMigrationMetadataTables(SqlConnection conn)
     {
         using var cmd = new SqlCommand(@"
-IF OBJECT_ID('dbo.AppStateSnapshots', 'U') IS NULL
+IF OBJECT_ID('dbo.SchemaMigrations', 'U') IS NULL
 BEGIN
-    CREATE TABLE dbo.AppStateSnapshots(
-        Id INT NOT NULL CONSTRAINT PK_AppStateSnapshots PRIMARY KEY,
-        Payload NVARCHAR(MAX) NOT NULL,
-        UpdatedAt DATETIMEOFFSET(7) NOT NULL
+    CREATE TABLE dbo.SchemaMigrations(
+        MigrationId NVARCHAR(64) NOT NULL CONSTRAINT PK_SchemaMigrations PRIMARY KEY,
+        ScriptName NVARCHAR(260) NOT NULL,
+        ScriptChecksum NVARCHAR(64) NOT NULL,
+        AppliedAt DATETIMEOFFSET(7) NOT NULL CONSTRAINT DF_SchemaMigrations_AppliedAt DEFAULT (SYSUTCDATETIME())
     );
 END", conn);
         cmd.ExecuteNonQuery();
     }
+
+    private static IReadOnlyList<MigrationScript> ReadMigrationManifest(string migrationsPath)
+    {
+        if (!Directory.Exists(migrationsPath)) return Array.Empty<MigrationScript>();
+
+        return Directory
+            .EnumerateFiles(migrationsPath, "*.sql", SearchOption.TopDirectoryOnly)
+            .Select(path =>
+            {
+                var fileName = Path.GetFileName(path);
+                var match = MigrationFilePattern.Match(fileName);
+                if (!match.Success)
+                    throw new InvalidOperationException($"Invalid migration filename '{fileName}'. Expected format: 0001_description.sql");
+
+                var id = match.Groups["id"].Value;
+                var sql = File.ReadAllText(path);
+                var checksum = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sql)));
+                return new MigrationScript(id, fileName, sql, checksum);
+            })
+            .OrderBy(x => x.MigrationId, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static Dictionary<string, AppliedMigration> ReadAppliedMigrations(SqlConnection conn)
+    {
+        var result = new Dictionary<string, AppliedMigration>(StringComparer.Ordinal);
+        using var cmd = new SqlCommand("SELECT MigrationId, ScriptName, ScriptChecksum, AppliedAt FROM dbo.SchemaMigrations", conn);
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            var id = reader.GetString(0);
+            result[id] = new AppliedMigration(id, reader.GetString(1), reader.GetString(2), reader.GetDateTimeOffset(3));
+        }
+
+        return result;
+    }
+
+    private static void BootstrapLegacyTracking(SqlConnection conn, IReadOnlyList<MigrationScript> manifest)
+    {
+        using var countCmd = new SqlCommand("SELECT COUNT(1) FROM dbo.SchemaMigrations", conn);
+        var count = (int)(countCmd.ExecuteScalar() ?? 0);
+        if (count > 0) return;
+
+        foreach (var script in manifest)
+        {
+            if (!IsLegacyMigrationAlreadyApplied(conn, script.MigrationId)) continue;
+            InsertAppliedMigration(conn, script);
+        }
+    }
+
+    private static bool IsLegacyMigrationAlreadyApplied(SqlConnection conn, string migrationId)
+    {
+        return migrationId switch
+        {
+            "0001" => TableExists(conn, "dbo", "AppStateSnapshots"),
+            "0002" => SnapshotRowExists(conn),
+            "0003" => TableExists(conn, "dbo", "SchemaMigrations"),
+            _ => false
+        };
+    }
+
+    private static bool TableExists(SqlConnection conn, string schema, string table)
+    {
+        using var cmd = new SqlCommand(@"
+SELECT 1
+FROM sys.tables t
+INNER JOIN sys.schemas s ON s.schema_id = t.schema_id
+WHERE t.name = @table AND s.name = @schema", conn);
+        cmd.Parameters.AddWithValue("@table", table);
+        cmd.Parameters.AddWithValue("@schema", schema);
+        return cmd.ExecuteScalar() is not null;
+    }
+
+    private static bool SnapshotRowExists(SqlConnection conn)
+    {
+        if (!TableExists(conn, "dbo", "AppStateSnapshots")) return false;
+        using var cmd = new SqlCommand("SELECT 1 FROM dbo.AppStateSnapshots WHERE Id = 1", conn);
+        return cmd.ExecuteScalar() is not null;
+    }
+
+    private static void GuardForMismatches(Dictionary<string, AppliedMigration> applied, IReadOnlyList<MigrationScript> manifest)
+    {
+        var manifestById = manifest.ToDictionary(x => x.MigrationId, x => x, StringComparer.Ordinal);
+
+        var unknownApplied = applied.Keys.Where(id => !manifestById.ContainsKey(id)).OrderBy(x => x, StringComparer.Ordinal).ToArray();
+        if (unknownApplied.Length > 0)
+            throw new InvalidOperationException($"Schema mismatch: DB has applied migrations not present in code: {string.Join(", ", unknownApplied)}.");
+
+        var changedScripts = applied
+            .Where(kv => manifestById.TryGetValue(kv.Key, out var script)
+                && !string.Equals(kv.Value.ScriptChecksum, script.Checksum, StringComparison.OrdinalIgnoreCase))
+            .Select(kv => kv.Key)
+            .OrderBy(x => x, StringComparer.Ordinal)
+            .ToArray();
+
+        if (changedScripts.Length > 0)
+            throw new InvalidOperationException($"Schema mismatch: migration script checksum changed after apply: {string.Join(", ", changedScripts)}.");
+    }
+
+    private static void ApplyPendingMigrations(SqlConnection conn, Dictionary<string, AppliedMigration> applied, IReadOnlyList<MigrationScript> manifest)
+    {
+        foreach (var script in manifest)
+        {
+            if (applied.ContainsKey(script.MigrationId)) continue;
+
+            using var tx = conn.BeginTransaction(IsolationLevel.Serializable);
+            ExecuteSqlBatches(conn, tx, script.Sql);
+
+            using (var trackCmd = new SqlCommand(@"
+INSERT INTO dbo.SchemaMigrations(MigrationId, ScriptName, ScriptChecksum, AppliedAt)
+VALUES (@id, @name, @checksum, SYSUTCDATETIME());", conn, tx))
+            {
+                trackCmd.Parameters.AddWithValue("@id", script.MigrationId);
+                trackCmd.Parameters.AddWithValue("@name", script.FileName);
+                trackCmd.Parameters.AddWithValue("@checksum", script.Checksum);
+                trackCmd.ExecuteNonQuery();
+            }
+
+            tx.Commit();
+        }
+    }
+
+    private static void ExecuteSqlBatches(SqlConnection conn, SqlTransaction tx, string sql)
+    {
+        var batches = Regex.Split(sql, @"^\s*GO\s*$", RegexOptions.Multiline | RegexOptions.IgnoreCase);
+        foreach (var batch in batches)
+        {
+            var statement = batch.Trim();
+            if (statement.Length == 0) continue;
+
+            using var cmd = new SqlCommand(statement, conn, tx);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    private static void InsertAppliedMigration(SqlConnection conn, MigrationScript script)
+    {
+        using var cmd = new SqlCommand(@"
+INSERT INTO dbo.SchemaMigrations(MigrationId, ScriptName, ScriptChecksum, AppliedAt)
+VALUES (@id, @name, @checksum, SYSUTCDATETIME());", conn);
+        cmd.Parameters.AddWithValue("@id", script.MigrationId);
+        cmd.Parameters.AddWithValue("@name", script.FileName);
+        cmd.Parameters.AddWithValue("@checksum", script.Checksum);
+        cmd.ExecuteNonQuery();
+    }
+
+    private sealed record MigrationScript(string MigrationId, string FileName, string Sql, string Checksum);
+    private sealed record AppliedMigration(string MigrationId, string ScriptName, string ScriptChecksum, DateTimeOffset AppliedAt);
 }
 
 internal static class SnapshotMapper

@@ -98,15 +98,19 @@
 ### SQL Server 模式
 - `PERSISTENCE_PROVIDER=sqlserver`
 - `ConnectionStrings__Default` 或 `SQLSERVER_CONNECTION_STRING`
-- 初始建庫 / migration SQL 檔案：
+- migration SQL 檔案（source of truth）：
   - `backend/database/sqlserver/0001_create_app_state_snapshots.sql`
   - `backend/database/sqlserver/0002_seed_initial_snapshot_row.sql`
+  - `backend/database/sqlserver/0003_create_schema_migrations.sql`
+- 啟動時會自動依序執行未套用 migration，並寫入 `dbo.SchemaMigrations`（含 migration id / script name / SHA-256 checksum / applied time）。
+- 啟動 mismatch guard：若資料庫記錄的 migration 在程式碼中不存在，或已套用 migration 的 SQL 檔 checksum 改變，服務會在啟動階段直接 fail-fast，避免在不一致 schema 上繼續運行。
 
 ### 選用
 - `JWT_ISSUER`
 - `JWT_AUDIENCE`
 - `JWT_TTL_MINUTES`
 - `NOTIFICATION_WEBHOOK_URL`
+- `SQLSERVER_MIGRATIONS_PATH`（選填，預設為執行檔旁 `database/sqlserver`）
 - `ENABLE_HTTPS_REDIRECT`（預設：Development 關閉、其他環境啟用）
 - `ENABLE_FORWARDED_HEADERS`（預設：`true`，可在非反向代理環境關閉）
 - `FORWARDED_HEADERS_TRUSTED_PROXIES`（逗號分隔 IP，例如 `10.0.0.2,10.0.0.3`）
