@@ -355,7 +355,10 @@ END", conn);
         {
             "0001" => TableExists(conn, "dbo", "AppStateSnapshots"),
             "0002" => SnapshotRowExists(conn),
-            "0003" => TableExists(conn, "dbo", "SchemaMigrations"),
+            // 0003 must be recorded only after the script actually runs.
+            // EnsureMigrationMetadataTables creates dbo.SchemaMigrations up-front,
+            // so table existence alone is not evidence that migration 0003 was applied.
+            "0003" => false,
             _ => false
         };
     }
