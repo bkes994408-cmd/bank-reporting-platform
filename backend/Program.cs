@@ -5,12 +5,16 @@ using System.Text.Json;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
+// 核心狀態採 Singleton：此專案目前以「單程序記憶體 + 持久化快照」為基礎，
+// 若改為多節點部署，需改成共享儲存與分散式 session 驗證。
 builder.Services.AddSingleton<AppState>();
 builder.Services.AddSingleton<SessionStore>();
 builder.Services.AddSingleton<JwtTokenService>();
 builder.Services.AddSingleton<IStateRepository>(sp =>
 {
     var cfg = sp.GetRequiredService<IConfiguration>();
+    // 支援 json/sqlserver 雙持久化模式；預設 json 便於本機開發，
+    // 正式環境建議使用 SQL 以避免檔案競態與單機故障風險。
     var provider = (cfg.GetString("Persistence:Provider", "PERSISTENCE_PROVIDER") ?? "json").Trim().ToLowerInvariant();
     return provider is "sql" or "sqlserver" ? new SqlStateRepository(cfg) : new JsonStateRepository(cfg);
 });
@@ -19,6 +23,8 @@ builder.Services.AddSingleton<CompositeNotificationSink>();
 builder.Services.AddHttpClient();
 builder.Services.AddRateLimiter(options =>
 {
+    // API 節流策略：登入端點較嚴格，其它 API 較寬鬆。
+    // 目標是降低暴力嘗試與誤用風險，而非取代 WAF/邊界防護。
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(ctx =>
     {
@@ -44,6 +50,8 @@ var app = builder.Build();
 var forwardedHeadersOptions = BuildForwardedHeadersOptions(app.Configuration);
 if (forwardedHeadersOptions is not null)
 {
+    // 若服務部署在反向代理後方，需先套用 forwarded headers，
+    // 才能正確取得來源 IP / HTTPS 狀態（影響稽核、HSTS、登入防護）。
     app.UseForwardedHeaders(forwardedHeadersOptions);
 }
 
@@ -56,6 +64,8 @@ if (enableHttpsRedirect)
 app.UseRateLimiter();
 app.Use(async (ctx, next) =>
 {
+    // 基線安全標頭：避免 MIME sniffing、點擊劫持與過度外部載入。
+    // 若前端改為外部 CDN，需同步檢視 CSP，避免部署後被瀏覽器阻擋。
     ctx.Response.Headers["X-Content-Type-Options"] = "nosniff";
     ctx.Response.Headers["X-Frame-Options"] = "DENY";
     ctx.Response.Headers["Referrer-Policy"] = "no-referrer";
@@ -70,6 +80,8 @@ var sessions = app.Services.GetRequiredService<SessionStore>();
 var repo = app.Services.GetRequiredService<IStateRepository>();
 var jwt = app.Services.GetRequiredService<JwtTokenService>();
 repo.EnsureReady();
+// 啟動時先確認儲存層可用並嘗試載入快照；僅在全新環境才進行 Seed。
+// 注意：Seed 含示範帳號密碼，只適合開發/測試，不可直接沿用到正式環境。
 if (!repo.TryLoad(db, sessions)) Seed(db);
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok", ts = DateTimeOffset.UtcNow }));
@@ -90,6 +102,9 @@ app.MapPost("/auth/register", (AppState state, IStateRepository storage, Registe
 
 app.MapPost("/auth/login", (AppState state, SessionStore sessionStore, JwtTokenService tokenService, AdAuthenticator ad, IStateRepository storage, LoginRequest req, HttpContext ctx) =>
 {
+    // 登入流程重點：
+    // 1) 帳號鎖定檢查 -> 2) 密碼/AD 驗證 -> 3) MFA 驗證 -> 4) 建立 token + session。
+    // 其中 session 與 JWT 需同時有效，才能視為已登入。
     var user = state.Users.Values.FirstOrDefault(x => x.Email.Equals(req.Email, StringComparison.OrdinalIgnoreCase));
     if (user is null) return Results.Unauthorized();
 
@@ -98,6 +113,8 @@ app.MapPost("/auth/login", (AppState state, SessionStore sessionStore, JwtTokenS
     var passOk = user.IsAdUser ? ad.Validate(req.Email, req.Password) : SecurityHelpers.VerifyPassword(req.Password, user.PasswordHash);
     if (!passOk)
     {
+        // 連續失敗超過門檻後鎖定 30 分鐘。
+        // 鎖定同時會將狀態標記為 Locked，利於後台快速識別異常帳號。
         var failed = user.FailedLoginCount + 1;
         var updated = user with { FailedLoginCount = failed, LockoutEnd = failed >= 5 ? DateTimeOffset.UtcNow.AddMinutes(30) : null, Status = failed >= 5 ? AccountStatus.Locked : user.Status };
         state.Users[user.Id] = updated;
@@ -111,6 +128,8 @@ app.MapPost("/auth/login", (AppState state, SessionStore sessionStore, JwtTokenS
     var mfaRequiredByPolicy = RequiresMfaPolicy(state, user);
     if (user.MfaEnabled)
     {
+        // 使用者已啟用 MFA 時，登入必須附上有效 TOTP。
+        // 注意：政策層(requiredByPolicy)僅回報合規狀態；實際阻擋由 RequireAny/RequireRole 在授權端點執行。
         if (string.IsNullOrWhiteSpace(req.MfaCode) || string.IsNullOrWhiteSpace(user.MfaSecret) || !SecurityHelpers.VerifyTotp(user.MfaSecret, req.MfaCode))
             return Results.BadRequest("MFA required or invalid");
     }
@@ -247,6 +266,8 @@ app.MapGet("/admin/security/mfa-policy", (AppState state, SessionStore sessionSt
 
 app.MapPut("/admin/security/mfa-policy", (AppState state, SessionStore sessionStore, JwtTokenService tokenService, IStateRepository storage, UpdateMfaPolicyRequest req, HttpContext ctx) =>
 {
+    // MFA 政策變更屬高風險操作：可選擇立即撤銷不合規帳號的現有 session。
+    // 這是「政策生效」與「既有登入清場」的關鍵開關，請在公告後執行。
     var admin = RequireRole(state, sessionStore, tokenService, ctx, UserRole.Admin);
     if (admin is null) return Results.Unauthorized();
 
@@ -311,6 +332,8 @@ app.MapPost("/submissions/{id:guid}/submit", (AppState state, SessionStore sessi
 
 app.MapPost("/submissions/{id:guid}/review", (AppState state, SessionStore sessionStore, JwtTokenService tokenService, IStateRepository storage, CompositeNotificationSink sink, Guid id, ReviewRequest req, HttpContext ctx) =>
 {
+    // 審核流程不變量：僅 Pending 可審、同機構主管可審（Admin 例外）。
+    // 核准後的「對外送審」目前為模擬呼叫（10% 失敗），正式串接需改為可重試的外部整合。
     var reviewer = RequireAny(state, sessionStore, tokenService, ctx, UserRole.Supervisor, UserRole.Admin);
     if (reviewer is null) return Results.Unauthorized();
     if (!state.Submissions.TryGetValue(id, out var sub)) return Results.NotFound();
@@ -390,6 +413,8 @@ static User? RequireAny(AppState db, SessionStore sessions, JwtTokenService jwt,
 
 static User? CurrentUser(AppState db, SessionStore sessions, JwtTokenService jwt, HttpContext ctx)
 {
+    // 驗證採雙層：JWT 簽章/時效 + 伺服器端 session 狀態（含 JTI 撤銷）。
+    // 任何一層失效都視為未授權，可避免單純 JWT 無狀態下的撤銷延遲問題。
     var token = ExtractToken(ctx);
     if (string.IsNullOrWhiteSpace(token)) return null;
     var principal = jwt.Validate(token);
@@ -404,6 +429,8 @@ static User? CurrentUser(AppState db, SessionStore sessions, JwtTokenService jwt
 
 static string? ExtractToken(HttpContext ctx)
 {
+    // Token 來源優先序：X-Auth-Token > Authorization: Bearer > cookie。
+    // 如需收斂來源以降低混淆，建議僅保留 Bearer/cookie 其中一種。
     if (ctx.Request.Headers.TryGetValue("X-Auth-Token", out var h) && !string.IsNullOrWhiteSpace(h.ToString())) return h.ToString();
 
     if (ctx.Request.Headers.TryGetValue("Authorization", out var auth))
@@ -495,6 +522,8 @@ static void Seed(AppState db)
 
 static ForwardedHeadersOptions? BuildForwardedHeadersOptions(IConfiguration config)
 {
+    // 反向代理信任設定：正式環境應明確填入 TrustedProxies/TrustedNetworks。
+    // 若使用預設私網段，請確認網路邊界可信，避免偽造 X-Forwarded-* 影響來源判定。
     var enabled = config.GetBool("Security:ForwardedHeaders:Enabled", "ENABLE_FORWARDED_HEADERS") ?? true;
     if (!enabled) return null;
 

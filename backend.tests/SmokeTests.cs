@@ -4,6 +4,8 @@ using Xunit;
 
 public class SmokeTests
 {
+    // 這些 smoke tests 主要覆蓋安全關鍵路徑（密碼、MFA、session 撤銷、匯出格式），
+    // 供快速驗證重構/註解調整後核心行為未回歸。
     [Theory]
     [InlineData("weak", false)]
     [InlineData("Strong#123456", true)]

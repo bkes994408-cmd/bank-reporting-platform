@@ -12,6 +12,8 @@ using System.IdentityModel.Tokens.Jwt;
 
 namespace BankReporting.Api;
 
+// 狀態儲存抽象：目前承載整體快照（含使用者、申報、稽核、session）。
+// 若未來改事件溯源/分表儲存，請先確保 SnapshotMapper 可雙向相容。
 public interface IStateRepository
 {
     void EnsureReady();
@@ -47,6 +49,7 @@ public static class ConfigurationExtensions
 
 public sealed class JwtTokenService
 {
+    // JWT 僅負責身分聲明與簽章驗證；真正的「可撤銷性」由 SessionStore 補上。
     private readonly byte[] _key;
     private readonly string _issuer;
     private readonly string _audience;
@@ -57,6 +60,7 @@ public sealed class JwtTokenService
     public JwtTokenService(IConfiguration cfg)
     {
         var secret = cfg.GetString("Security:Jwt:Secret", "JWT_SECRET");
+        // 生產環境要求足夠長度的對稱金鑰，避免弱密鑰造成簽章可被暴力破解。
         if (string.IsNullOrWhiteSpace(secret) || secret.Length < 32)
             throw new InvalidOperationException("JWT_SECRET must be configured and at least 32 chars for production use.");
 
@@ -111,6 +115,8 @@ public sealed class JwtTokenService
 
 public sealed class SessionStore
 {
+    // 以 token hash 作為索引，避免明文 token 留在記憶體結構中。
+    // 另維護 revoked JTI 清單，處理「token 尚未過期但需即時失效」情境。
     private readonly ConcurrentDictionary<string, SessionInfo> _sessions = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, RevokedTokenInfo> _revokedJtis = new(StringComparer.OrdinalIgnoreCase);
 
@@ -204,6 +210,7 @@ public sealed class SessionStore
 
 public sealed class JsonStateRepository : IStateRepository
 {
+    // JSON 持久化適合單機開發/示範；高併發與多實例部署請改用 SQL repository。
     private readonly string _path;
     private readonly JsonSerializerOptions _options = new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
@@ -239,6 +246,7 @@ public sealed class JsonStateRepository : IStateRepository
 
 public sealed class SqlStateRepository : IStateRepository
 {
+    // SQL 持久化會在啟動時自動檢查/套用 migration，並對已套用腳本做 checksum 防竄改。
     private static readonly Regex MigrationFilePattern = new("^(?<id>\\d{4})_.*\\.sql$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private readonly string _connectionString;
@@ -256,6 +264,8 @@ public sealed class SqlStateRepository : IStateRepository
 
     public void EnsureReady()
     {
+        // 啟動不變量：schema metadata 存在、migration manifest 可讀、DB 與程式版本一致。
+        // 任一條件不符直接 fail fast，避免服務在未知 schema 上執行。
         using var conn = new SqlConnection(_connectionString);
         conn.Open();
         EnsureMigrationMetadataTables(conn);
@@ -409,6 +419,10 @@ WHERE t.name = @table AND s.name = @schema", conn);
 
     private static void GuardForMismatches(Dictionary<string, AppliedMigration> applied, IReadOnlyList<MigrationScript> manifest)
     {
+        // 安全防線：
+        // - DB 多了程式碼不存在的 migration -> 可能版本漂移
+        // - 已套用 migration checksum 改變 -> 可能腳本遭覆寫
+        // 兩者都必須中止啟動並人工介入。
         var manifestById = manifest.ToDictionary(x => x.MigrationId, x => x, StringComparer.Ordinal);
 
         var unknownApplied = applied.Keys.Where(id => !manifestById.ContainsKey(id)).OrderBy(x => x, StringComparer.Ordinal).ToArray();
@@ -479,6 +493,7 @@ VALUES (@id, @name, @checksum, SYSUTCDATETIME());", conn);
 
 internal static class SnapshotMapper
 {
+    // 將執行期 Domain 與持久化 Snapshot 隔離，避免序列化細節污染核心模型。
     public static AppStateSnapshot Build(AppState state, SessionStore sessions)
         => new(
             state.Users.Values.ToArray(),
@@ -521,6 +536,8 @@ internal static class SnapshotMapper
 
 public sealed class CompositeNotificationSink
 {
+    // 通知採 best-effort：主流程先寫入本地通知，再非同步嘗試 webhook。
+    // webhook 失敗只記錄 warning，不回滾主交易。
     private readonly ILogger<CompositeNotificationSink> _logger;
     private readonly HttpClient _httpClient;
     private readonly string? _webhookUrl;

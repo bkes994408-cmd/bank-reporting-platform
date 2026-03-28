@@ -6,6 +6,7 @@ using System.Text.Json;
 
 namespace BankReporting.Api;
 
+// 權限與流程狀態列舉：避免散落 magic string，並維持審核流程語意一致。
 public enum UserRole { Admin, Supervisor, Clerk, ReadOnly }
 public enum AccountStatus { PendingEmailVerification, PendingApproval, Active, Rejected, Disabled, Locked }
 public enum SubmissionStatus { Draft, Pending, Rejected, Approved, Submitting, Submitted, Failed }
@@ -65,6 +66,8 @@ public record MfaPolicy(
     Guid? UpdatedBy,
     string? Note)
 {
+    // 預設不強制 MFA，避免新環境升級時直接造成全面登入失敗。
+    // 正式上線請由管理端點明確開啟並搭配 session 撤銷策略。
     public static MfaPolicy Default => new(MfaPolicyScope.Disabled, false, DateTimeOffset.UtcNow, null, null);
 
     public bool RequiresMfa(UserRole role)
@@ -84,6 +87,8 @@ public record MfaPolicy(
 
 public sealed class AppState
 {
+    // 目前為單程序 in-memory 狀態容器，透過 repository 做快照持久化。
+    // 併發使用 Concurrent*；但跨進程一致性需由外部儲存層保證。
     public ConcurrentDictionary<Guid, User> Users { get; } = new();
     public ConcurrentDictionary<string, Institution> Institutions { get; } = new(StringComparer.OrdinalIgnoreCase);
     public ConcurrentDictionary<string, ReportDefinition> ReportDefinitions { get; } = new(StringComparer.OrdinalIgnoreCase);
@@ -102,6 +107,8 @@ public sealed class AppState
 
 public static class SecurityHelpers
 {
+    // 安全工具集中區：密碼、TOTP、靜態加密與匯出格式。
+    // 修改此區邏輯時，請同步更新 smoke tests 與相容性說明。
     public static bool IsStrongPassword(string password) =>
         password.Length >= 12 &&
         password.Any(char.IsUpper) &&
@@ -111,6 +118,8 @@ public static class SecurityHelpers
 
     public static string HashPassword(string password)
     {
+        // PBKDF2 + per-password salt。
+        // 注意：迭代次數調整會影響效能與安全強度，需連同壓測與升級策略一起評估。
         var salt = RandomNumberGenerator.GetBytes(16);
         Span<byte> hash = stackalloc byte[32];
         Rfc2898DeriveBytes.Pbkdf2(password, salt, hash, 100_000, HashAlgorithmName.SHA256);
@@ -164,6 +173,8 @@ public static class SecurityHelpers
 
     private static byte[] GetMasterKey()
     {
+        // 金鑰來源只接受環境變數，避免硬編碼或落地在 repo。
+        // 部署時請用祕密管理服務注入，並建立輪替/回滾機制。
         var raw = Environment.GetEnvironmentVariable("REPORTING_MASTER_KEY");
         if (string.IsNullOrWhiteSpace(raw))
             throw new InvalidOperationException("REPORTING_MASTER_KEY is required for at-rest encryption.");
@@ -195,6 +206,8 @@ public static class SecurityHelpers
 
     public static bool VerifyTotp(string base64Secret, string code, int window = 1)
     {
+        // window=1 代表容許前後一個 time-step（共約 ±30 秒）時鐘漂移。
+        // 若要更嚴格可調小，但會增加使用者驗證失敗機率。
         if (string.IsNullOrWhiteSpace(code) || code.Length != 6) return false;
         var secret = Convert.FromBase64String(base64Secret);
         var timestep = DateTimeOffset.UtcNow.ToUnixTimeSeconds() / 30;

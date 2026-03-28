@@ -1,3 +1,5 @@
+# CI 採 quality gate -> backend/frontend 並行：
+# 先跑 secret scan，避免含敏感字串的變更進入後續流程。
 name: ci
 
 on:
@@ -9,6 +11,7 @@ on:
   workflow_dispatch:
 
 jobs:
+  # quality job 失敗時，其它 job 不應繼續執行（透過 needs 控制）。
   quality:
     runs-on: ubuntu-latest
     steps:
@@ -18,6 +21,7 @@ jobs:
 
   backend:
     runs-on: ubuntu-latest
+    # 後端測試依賴 quality gate，避免在可預期失敗的 PR 上浪費 runner。
     needs: [quality]
     steps:
       - uses: actions/checkout@v4
@@ -31,6 +35,7 @@ jobs:
 
   frontend:
     runs-on: ubuntu-latest
+    # 前端僅做 install+build，作為最小可部署性檢查。
     needs: [quality]
     steps:
       - uses: actions/checkout@v4
