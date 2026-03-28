@@ -12,6 +12,12 @@ function isAuthError(status, body, raw) {
     return false;
   }
 
+  // Common backend auth failures return empty 401/403 (e.g. Results.Unauthorized()).
+  // Treat empty bodies as auth errors so expired-session fallback still runs.
+  if ((body == null || body === '') && (!raw || raw.trim() === '')) {
+    return true;
+  }
+
   const text = `${typeof body === 'string' ? body : JSON.stringify(body || {})} ${raw || ''}`.toLowerCase();
   return text.includes('token') || text.includes('jwt') || text.includes('unauthorized') || text.includes('forbidden');
 }
