@@ -1,0 +1,290 @@
+:root {
+  --bg: #f3f6fb;
+  --surface: #ffffff;
+  --surface-alt: #f8faff;
+  --line: #dbe3f1;
+  --text: #1f2a44;
+  --sub: #62708b;
+  --primary: #2a62ff;
+  --primary-soft: #e8efff;
+  --ok: #0f9d58;
+  --warn: #d97706;
+  --danger: #c62828;
+  --shadow: 0 8px 24px rgba(36, 66, 136, 0.08);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: Inter, system-ui, -apple-system, "Noto Sans TC", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 280px 1fr;
+}
+
+.sidebar {
+  border-right: 1px solid var(--line);
+  background: linear-gradient(180deg, #fcfdff, #f5f8ff);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.brand {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.brand__logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 700;
+}
+
+.brand h1 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.brand p {
+  margin: 2px 0 0;
+  color: var(--sub);
+  font-size: 12px;
+}
+
+.sidebar__section label {
+  display: block;
+  color: var(--sub);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.sidebar__nav {
+  display: grid;
+  gap: 8px;
+}
+
+.nav-btn {
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+}
+
+.nav-btn.active {
+  background: var(--primary-soft);
+  border-color: #bfd0ff;
+  color: #163baf;
+}
+
+.sidebar__footer {
+  margin-top: auto;
+}
+
+.content {
+  padding: 22px;
+  display: grid;
+  gap: 16px;
+  align-content: start;
+}
+
+.panel, .subpanel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+}
+
+.panel {
+  padding: 16px;
+}
+
+.panel--narrow {
+  max-width: 860px;
+}
+
+.subpanel {
+  padding: 12px;
+  margin-bottom: 12px;
+  background: var(--surface-alt);
+}
+
+.panel__header h2 {
+  margin: 0;
+}
+
+.panel__header h3 {
+  margin: 0;
+}
+
+.panel__header p {
+  margin: 6px 0 0;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.row--between {
+  justify-content: space-between;
+}
+
+.row--wrap {
+  flex-wrap: wrap;
+}
+
+.muted {
+  color: var(--sub);
+  font-size: 13px;
+}
+
+input, select, button {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 9px 10px;
+  background: #fff;
+  font-size: 14px;
+  color: var(--text);
+}
+
+input, select {
+  min-height: 38px;
+}
+
+button {
+  cursor: pointer;
+}
+
+button.primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+button.warn {
+  background: #fff8e8;
+  border-color: #f2d089;
+  color: #8a5300;
+}
+
+button.ok {
+  background: #edf9f2;
+  border-color: #9bd6b6;
+  color: #0d7a44;
+}
+
+button.danger {
+  background: #ffeff1;
+  border-color: #f7b2b8;
+  color: #9b1e1e;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.grid-form {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.kpi {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--surface-alt);
+}
+
+.kpi .v {
+  font-size: 22px;
+  font-weight: 700;
+  margin-top: 6px;
+}
+
+.table-wrap {
+  max-height: 60vh;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+th, td {
+  border-bottom: 1px solid var(--line);
+  padding: 8px 6px;
+  text-align: left;
+  vertical-align: top;
+}
+
+th {
+  position: sticky;
+  top: 0;
+  background: #f7f9ff;
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  border: 1px solid var(--line);
+}
+
+.badge.pending { background: #fff7e6; }
+.badge.active { background: #e9f9ef; }
+.badge.locked, .badge.rejected { background: #ffebee; }
+
+.toast {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  background: #1f2a44;
+  color: #fff;
+  padding: 10px 12px;
+  border-radius: 8px;
+  max-width: 480px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+@media (max-width: 1024px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+  }
+}
