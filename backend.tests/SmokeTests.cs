@@ -1,4 +1,6 @@
 using BankReporting.Api;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
 using System.Text.Json;
 using Xunit;
 
@@ -112,5 +114,39 @@ public class SmokeTests
     {
         var policy = new MfaPolicy(scope, enforce, DateTimeOffset.UtcNow, null, null);
         Assert.Equal(expected, policy.RequiresMfa(role));
+    }
+
+    [Fact]
+    public void AdAuthenticator_MockMode_ValidatesKnownUser()
+    {
+        var cfg = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Auth:Ad:Enabled"] = "true",
+            ["Auth:Ad:Mode"] = "mock",
+            ["Auth:Ad:MockUsersJson"] = "{\"ad.user@bank.local\":\"Passw0rd!\"}"
+        }).Build();
+
+        var ad = new AdAuthenticator(cfg, NullLogger<AdAuthenticator>.Instance);
+
+        var ok = ad.Validate("ad.user@bank.local", "Passw0rd!");
+        var bad = ad.Validate("ad.user@bank.local", "wrong");
+
+        Assert.Equal(AdAuthStatus.Success, ok.Status);
+        Assert.Equal(AdAuthStatus.InvalidCredentials, bad.Status);
+    }
+
+    [Fact]
+    public void AdAuthenticator_LdapMode_WithoutHost_ReturnsMisconfigured()
+    {
+        var cfg = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Auth:Ad:Enabled"] = "true",
+            ["Auth:Ad:Mode"] = "ldap"
+        }).Build();
+
+        var ad = new AdAuthenticator(cfg, NullLogger<AdAuthenticator>.Instance);
+        var result = ad.Validate("ad.user@bank.local", "Passw0rd!");
+
+        Assert.Equal(AdAuthStatus.Misconfigured, result.Status);
     }
 }

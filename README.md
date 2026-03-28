@@ -72,7 +72,7 @@
 - MFA
 - JWT `jti` 撤銷 / token revocation
 - 密碼變更與密碼歷史重複防止
-- AD mock 整合
+- AD mock + LDAP（第一階段）整合
 - 匯出
 - 通知
 - 完整化的 admin console
@@ -80,7 +80,7 @@
 - 安全強化
 
 ### 尚未完成
-- 真實 AD / LDAP / SSO
+- 完整企業級 AD / LDAP（群組對應、service account 搜尋）/ SSO
 - 更完整的 Identity 整合
 - 正規化 SQL schema
 - 更完整前端管理 UI
@@ -123,7 +123,7 @@
 - Persistence：`PERSISTENCE_PROVIDER`、`PERSISTENCE_FILE`、`SQLSERVER_CONNECTION_STRING`、`SQLSERVER_MIGRATIONS_PATH`
 - Security：`ENABLE_HTTPS_REDIRECT`、`ENABLE_FORWARDED_HEADERS`、`FORWARDED_HEADERS_FORWARD_LIMIT`、`FORWARDED_HEADERS_TRUSTED_PROXIES`、`FORWARDED_HEADERS_TRUSTED_NETWORKS`
 - Notification：`NOTIFICATION_WEBHOOK_URL`
-- AD mock：`AD_ENABLED`、`AD_MOCK_USERS_JSON`
+- AD / LDAP：`AD_ENABLED`、`AD_MODE`（`mock`/`ldap`）、`AD_MOCK_USERS_JSON`、`AD_LDAP_HOST`、`AD_LDAP_PORT`、`AD_LDAP_USE_SSL`、`AD_LDAP_STARTTLS`、`AD_LDAP_IGNORE_CERT_ERRORS`、`AD_LDAP_BIND_DN_TEMPLATE`、`AD_LDAP_UPN_DOMAIN`、`AD_LDAP_CONNECT_TIMEOUT_SECONDS`、`AD_LDAP_OPERATION_TIMEOUT_SECONDS`
 
 ### SQL Server 模式
 - 建議設定：
@@ -148,6 +148,18 @@
 
 > 備註：第一階段採「授權端點強制」，不改動現有 JWT / session 發放模型，降低相容性風險。
 
+## AD / LDAP 整合（第一階段）
+- 支援兩種模式：
+  - `mock`：延續既有本機開發假資料帳密
+  - `ldap`：以 LDAP bind 驗證 AD 帳密（不改動既有 JWT/session 發放模型）
+- 主要設計重點：
+  - AD 帳號 (`IsAdUser=true`) 登入時走目錄服務驗證
+  - LDAP 服務不可用或設定錯誤時，回應 `503`，且**不累計**失敗次數，避免誤鎖帳號
+  - 單純帳密錯誤仍沿用既有鎖定策略（5 次失敗鎖 30 分鐘）
+- 建議：
+  - 生產環境使用 `UseSsl=true` 或 `StartTls=true`
+  - `IgnoreCertificateErrors=true` 僅限測試環境，避免中間人風險
+
 ## 驗證
 目前已通過：
 - `dotnet test`
@@ -157,3 +169,4 @@
 ## 備註
 - Repo 名稱：`bank-reporting-platform`
 - 這是新專案，不沿用舊的 legacy repo
+- AD/LDAP 第一階段細節請見：`docs/AD_LDAP_INTEGRATION_SLICE1.md`

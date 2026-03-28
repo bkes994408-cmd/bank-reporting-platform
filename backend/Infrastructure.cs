@@ -1,6 +1,9 @@
 using System.Collections.Concurrent;
 using System.Data;
+using System.DirectoryServices.Protocols;
+using System.Net;
 using System.Net.Http.Json;
+using System.Net.Sockets;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
@@ -340,7 +343,7 @@ END", conn);
         if (!Directory.Exists(migrationsPath)) return Array.Empty<MigrationScript>();
 
         return Directory
-            .EnumerateFiles(migrationsPath, "*.sql", SearchOption.TopDirectoryOnly)
+            .EnumerateFiles(migrationsPath, "*.sql", System.IO.SearchOption.TopDirectoryOnly)
             .Select(path =>
             {
                 var fileName = Path.GetFileName(path);
@@ -567,24 +570,151 @@ public sealed class CompositeNotificationSink
     }
 }
 
+public enum AdAuthStatus
+{
+    Disabled,
+    Success,
+    InvalidCredentials,
+    Misconfigured,
+    DirectoryUnavailable
+}
+
+public sealed record AdAuthResult(AdAuthStatus Status, string? Detail = null)
+{
+    public bool IsSuccess => Status == AdAuthStatus.Success;
+    public bool IsCredentialFailure => Status == AdAuthStatus.InvalidCredentials;
+}
+
 public sealed class AdAuthenticator
 {
+    private readonly ILogger<AdAuthenticator> _logger;
     private readonly Dictionary<string, string> _users;
+    private readonly string _mode;
+    private readonly string? _ldapHost;
+    private readonly int _ldapPort;
+    private readonly bool _ldapUseSsl;
+    private readonly bool _ldapStartTls;
+    private readonly bool _ignoreCertificateErrors;
+    private readonly string? _bindDnTemplate;
+    private readonly string? _upnDomain;
+    private readonly int _connectTimeoutSeconds;
+    private readonly int _operationTimeoutSeconds;
+
     public bool Enabled { get; }
 
-    public AdAuthenticator(IConfiguration cfg)
+    public AdAuthenticator(IConfiguration cfg, ILogger<AdAuthenticator> logger)
     {
+        _logger = logger;
         Enabled = cfg.GetBool("Auth:Ad:Enabled", "AD_ENABLED") ?? false;
+        _mode = (cfg.GetString("Auth:Ad:Mode", "AD_MODE") ?? "mock").Trim().ToLowerInvariant();
+
         var raw = cfg.GetString("Auth:Ad:MockUsersJson", "AD_MOCK_USERS_JSON");
         _users = string.IsNullOrWhiteSpace(raw)
             ? new(StringComparer.OrdinalIgnoreCase)
             : JsonSerializer.Deserialize<Dictionary<string, string>>(raw) ?? new(StringComparer.OrdinalIgnoreCase);
+
+        _ldapHost = cfg.GetString("Auth:Ad:Ldap:Host", "AD_LDAP_HOST");
+        _ldapPort = cfg.GetInt("Auth:Ad:Ldap:Port", "AD_LDAP_PORT") ?? 636;
+        _ldapUseSsl = cfg.GetBool("Auth:Ad:Ldap:UseSsl", "AD_LDAP_USE_SSL") ?? true;
+        _ldapStartTls = cfg.GetBool("Auth:Ad:Ldap:StartTls", "AD_LDAP_STARTTLS") ?? false;
+        _ignoreCertificateErrors = cfg.GetBool("Auth:Ad:Ldap:IgnoreCertificateErrors", "AD_LDAP_IGNORE_CERT_ERRORS") ?? false;
+        _bindDnTemplate = cfg.GetString("Auth:Ad:Ldap:BindDnTemplate", "AD_LDAP_BIND_DN_TEMPLATE");
+        _upnDomain = cfg.GetString("Auth:Ad:Ldap:UpnDomain", "AD_LDAP_UPN_DOMAIN");
+        _connectTimeoutSeconds = cfg.GetInt("Auth:Ad:Ldap:ConnectTimeoutSeconds", "AD_LDAP_CONNECT_TIMEOUT_SECONDS") ?? 5;
+        _operationTimeoutSeconds = cfg.GetInt("Auth:Ad:Ldap:OperationTimeoutSeconds", "AD_LDAP_OPERATION_TIMEOUT_SECONDS") ?? 10;
     }
 
-    public bool Validate(string email, string password)
+    public AdAuthResult Validate(string email, string password)
     {
-        if (!Enabled) return false;
-        return _users.TryGetValue(email, out var pw) && pw == password;
+        if (!Enabled) return new(AdAuthStatus.Disabled);
+        if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password)) return new(AdAuthStatus.InvalidCredentials);
+
+        return _mode switch
+        {
+            "mock" => ValidateMock(email, password),
+            "ldap" => ValidateLdap(email, password),
+            _ => new(AdAuthStatus.Misconfigured, $"Unknown AD mode: {_mode}")
+        };
+    }
+
+    private AdAuthResult ValidateMock(string email, string password)
+    {
+        return _users.TryGetValue(email, out var pw) && pw == password
+            ? new(AdAuthStatus.Success)
+            : new(AdAuthStatus.InvalidCredentials);
+    }
+
+    private AdAuthResult ValidateLdap(string email, string password)
+    {
+        if (string.IsNullOrWhiteSpace(_ldapHost))
+            return new(AdAuthStatus.Misconfigured, "AD LDAP host is not configured");
+
+        if (_ldapUseSsl && _ldapStartTls)
+            return new(AdAuthStatus.Misconfigured, "UseSsl and StartTls cannot both be true");
+
+        var bindUser = ResolveBindUser(email);
+
+        try
+        {
+            var connectTimeout = TimeSpan.FromSeconds(Math.Clamp(_connectTimeoutSeconds, 1, 60));
+            var operationTimeout = TimeSpan.FromSeconds(Math.Clamp(_operationTimeoutSeconds, 1, 120));
+
+            using (var tcp = new TcpClient())
+            {
+                var connectTask = tcp.ConnectAsync(_ldapHost, _ldapPort);
+                if (!connectTask.Wait(connectTimeout))
+                    return new(AdAuthStatus.DirectoryUnavailable, "LDAP connect timeout");
+            }
+
+            var identifier = new LdapDirectoryIdentifier(_ldapHost, _ldapPort, false, false);
+            using var connection = new LdapConnection(identifier)
+            {
+                AuthType = AuthType.Basic,
+                Credential = new NetworkCredential(bindUser, password),
+                Timeout = operationTimeout
+            };
+
+            connection.SessionOptions.ProtocolVersion = 3;
+            connection.SessionOptions.SecureSocketLayer = _ldapUseSsl;
+            if (_ignoreCertificateErrors)
+                connection.SessionOptions.VerifyServerCertificate = (_, _) => true;
+
+            if (_ldapStartTls)
+                connection.SessionOptions.StartTransportLayerSecurity(null);
+
+            connection.Bind();
+            return new(AdAuthStatus.Success);
+        }
+        catch (LdapException ex) when (ex.ErrorCode == 49)
+        {
+            return new(AdAuthStatus.InvalidCredentials);
+        }
+        catch (LdapException ex)
+        {
+            _logger.LogWarning(ex, "LDAP validation failed for user {Email}.", email);
+            return new(AdAuthStatus.DirectoryUnavailable, ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "LDAP unexpected validation failure for user {Email}.", email);
+            return new(AdAuthStatus.DirectoryUnavailable, ex.Message);
+        }
+    }
+
+    private string ResolveBindUser(string email)
+    {
+        if (!string.IsNullOrWhiteSpace(_bindDnTemplate))
+        {
+            var username = email.Split('@')[0];
+            return _bindDnTemplate
+                .Replace("{email}", email, StringComparison.OrdinalIgnoreCase)
+                .Replace("{username}", username, StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (!string.IsNullOrWhiteSpace(_upnDomain) && !email.Contains('@'))
+            return $"{email}@{_upnDomain}";
+
+        return email;
     }
 }
 
