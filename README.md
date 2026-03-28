@@ -48,6 +48,7 @@
 - Session 撤銷操作
 - 稽核紀錄查詢與篩選
 - 現代化 admin-console 版型（sidebar + card/table 視覺）
+- 第二階段 UX 強化：token/session 過期自動回退登入、tab/篩選條件 session 保留、按鈕 busy state 與狀態列回饋
 
 ## 專案現況
 這個 repo 仍在持續開發中，但已經具備：
