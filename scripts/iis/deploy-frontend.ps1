@@ -33,7 +33,7 @@ if (-not (Test-Path $webConfigPath)) {
 }
 
 $content = Get-Content $index -Raw
-$content = $content -replace 'value="http://localhost:5000"', "value=\"$ApiBaseUrl\""
+$content = $content -replace 'value="http://localhost:5000"', ('value="{0}"' -f $ApiBaseUrl)
 Set-Content -Path $index -Value $content -Encoding UTF8
 
 if ($UseReverseProxy) {

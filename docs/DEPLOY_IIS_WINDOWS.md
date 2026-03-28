@@ -119,7 +119,8 @@
 - `JWT_AUDIENCE=bank-reporting-web`
 - `JWT_TTL_MINUTES=30`
 - `ASPNETCORE_ENVIRONMENT=Production`
-- `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true`（若前面有反向代理）
+- `ENABLE_FORWARDED_HEADERS=true`（若前面有反向代理）
+- `FORWARDED_HEADERS_TRUSTED_PROXIES=127.0.0.1`（依你的反向代理來源調整）
 
 ### 前端 API Base
 
