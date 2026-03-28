@@ -1,14 +1,54 @@
 import { state } from './state.js';
-import { byId, esc, toast } from './dom.js';
-import { api } from './api.js';
+import { byId, esc, setButtonBusy, toast } from './dom.js';
+import { api, setUnauthorizedHandler } from './api.js';
 
 const tabs = ['overview', 'users', 'audit'];
 
-function showTab(tab) {
+function setAuthUi(loggedIn) {
+  byId('loginCard').classList.toggle('hidden', loggedIn);
+  byId('app').classList.toggle('hidden', !loggedIn);
+}
+
+function setTopStatus(text = '', tone = 'muted') {
+  const el = byId('topStatus');
+  el.textContent = text;
+  el.classList.remove('status--warn', 'status--ok');
+  if (tone === 'warn') el.classList.add('status--warn');
+  if (tone === 'ok') el.classList.add('status--ok');
+}
+
+function setLoading(loading, text = '資料更新中...') {
+  if (loading) {
+    setTopStatus(text);
+  }
+  byId('refreshBtn').disabled = loading;
+}
+
+function saveFilters() {
+  sessionStorage.setItem('admin_user_query', byId('userQuery').value);
+  sessionStorage.setItem('admin_status_filter', byId('statusFilter').value);
+  sessionStorage.setItem('admin_audit_query', byId('auditActionFilter').value);
+  sessionStorage.setItem('admin_audit_top', byId('auditTop').value);
+}
+
+function restoreFilters() {
+  byId('userQuery').value = sessionStorage.getItem('admin_user_query') || '';
+  byId('statusFilter').value = sessionStorage.getItem('admin_status_filter') || 'all';
+  byId('auditActionFilter').value = sessionStorage.getItem('admin_audit_query') || '';
+  byId('auditTop').value = sessionStorage.getItem('admin_audit_top') || '200';
+}
+
+function showTab(tab, save = true) {
+  const next = tabs.includes(tab) ? tab : 'overview';
   tabs.forEach((name) => {
-    byId(`tab${name[0].toUpperCase() + name.slice(1)}`).classList.toggle('hidden', name !== tab);
-    byId(`tab${name[0].toUpperCase() + name.slice(1)}Btn`).classList.toggle('active', name === tab);
+    byId(`tab${name[0].toUpperCase() + name.slice(1)}`).classList.toggle('hidden', name !== next);
+    byId(`tab${name[0].toUpperCase() + name.slice(1)}Btn`).classList.toggle('active', name === next);
   });
+
+  state.activeTab = next;
+  if (save) {
+    sessionStorage.setItem('admin_active_tab', next);
+  }
 }
 
 function statusBadge(status) {
@@ -133,17 +173,28 @@ async function loadAudit() {
   renderRecentAudit();
 }
 
-async function refreshAll() {
+async function refreshAll(button = byId('refreshBtn')) {
+  setLoading(true);
+  setButtonBusy(button, true, '更新中...');
   try {
     await loadUsers();
     await loadMfaPolicy();
     await loadAudit();
+    setTopStatus('資料已更新', 'ok');
   } catch (e) {
-    toast(`資料載入失敗：${e.message}`, true);
+    if (!state.sessionExpiredHandled) {
+      toast(`資料載入失敗：${e.message}`, 'error');
+    }
+  } finally {
+    setLoading(false);
+    setButtonBusy(button, false);
   }
 }
 
 async function login() {
+  const loginBtn = byId('loginBtn');
+  setButtonBusy(loginBtn, true, '登入中...');
+
   try {
     const body = {
       email: byId('email').value.trim(),
@@ -153,33 +204,61 @@ async function login() {
 
     const data = await api('/auth/login', { method: 'POST', body: JSON.stringify(body) });
     state.token = data.token || state.token;
+    state.sessionExpiredHandled = false;
+
     if (state.token) {
       sessionStorage.setItem('admin_token', state.token);
     }
 
     state.currentUser = data.user;
     byId('whoami').textContent = `${data.user?.name || ''} (${data.user?.role || ''})`;
-    byId('loginCard').classList.add('hidden');
-    byId('app').classList.remove('hidden');
-    await refreshAll();
-    toast('登入成功');
+    setAuthUi(true);
+    await refreshAll(loginBtn);
+    showTab(state.activeTab);
+    toast('登入成功', 'success');
   } catch (e) {
-    toast(`登入失敗：${e.message}`, true);
+    toast(`登入失敗：${e.message}`, 'error');
+  } finally {
+    setButtonBusy(loginBtn, false);
   }
 }
 
+function clearSessionState() {
+  state.token = '';
+  state.currentUser = null;
+  state.users = [];
+  state.audits = [];
+  sessionStorage.removeItem('admin_token');
+  byId('whoami').textContent = '';
+}
+
 async function logout() {
+  const logoutBtn = byId('logoutBtn');
+  setButtonBusy(logoutBtn, true, '登出中...');
+
   try {
     await api('/auth/logout', { method: 'POST' });
   } catch {
     // ignore best effort logout
   }
 
-  state.token = '';
-  sessionStorage.removeItem('admin_token');
-  byId('app').classList.add('hidden');
-  byId('loginCard').classList.remove('hidden');
-  toast('已登出');
+  clearSessionState();
+  setAuthUi(false);
+  setTopStatus('');
+  toast('已登出', 'success');
+  setButtonBusy(logoutBtn, false);
+}
+
+function forceLogoutForExpiredSession() {
+  if (state.sessionExpiredHandled) {
+    return;
+  }
+
+  state.sessionExpiredHandled = true;
+  clearSessionState();
+  setAuthUi(false);
+  setTopStatus('登入狀態已過期，請重新登入', 'warn');
+  toast('登入已過期或 token 無效，請重新登入', 'warn');
 }
 
 async function approveUser(userId, approve) {
@@ -195,10 +274,10 @@ async function approveUser(userId, approve) {
       body: JSON.stringify({ approve, role, institutionCode })
     });
 
-    toast(approve ? '已核准帳號' : '已拒絕帳號');
+    toast(approve ? '已核准帳號' : '已拒絕帳號', 'success');
     await refreshAll();
   } catch (e) {
-    toast(`操作失敗：${e.message}`, true);
+    toast(`操作失敗：${e.message}`, 'error');
   }
 }
 
@@ -209,14 +288,17 @@ async function revokeSessions(userId) {
 
   try {
     const data = await api(`/admin/users/${userId}/revoke-sessions`, { method: 'POST' });
-    toast(`已撤銷 ${data.revokedCount} 個 sessions`);
+    toast(`已撤銷 ${data.revokedCount} 個 sessions`, 'success');
     await loadAudit();
   } catch (e) {
-    toast(`撤銷失敗：${e.message}`, true);
+    toast(`撤銷失敗：${e.message}`, 'error');
   }
 }
 
 async function updateMfaPolicy() {
+  const updateBtn = byId('updateMfaBtn');
+  setButtonBusy(updateBtn, true, '更新中...');
+
   try {
     const payload = {
       scope: byId('mfaScope').value,
@@ -229,23 +311,50 @@ async function updateMfaPolicy() {
       body: JSON.stringify(payload)
     });
 
-    toast(`MFA 政策已更新，撤銷 sessions: ${data.revokedCount}`);
-    await refreshAll();
+    toast(`MFA 政策已更新，撤銷 sessions: ${data.revokedCount}`, 'success');
+    await refreshAll(updateBtn);
   } catch (e) {
-    toast(`更新政策失敗：${e.message}`, true);
+    toast(`更新政策失敗：${e.message}`, 'error');
+  } finally {
+    setButtonBusy(updateBtn, false);
   }
 }
 
 function registerEvents() {
   byId('loginBtn').addEventListener('click', login);
   byId('logoutBtn').addEventListener('click', logout);
-  byId('refreshBtn').addEventListener('click', refreshAll);
+  byId('refreshBtn').addEventListener('click', () => refreshAll(byId('refreshBtn')));
   byId('updateMfaBtn').addEventListener('click', updateMfaPolicy);
-  byId('loadAuditBtn').addEventListener('click', loadAudit);
+  byId('loadAuditBtn').addEventListener('click', async () => {
+    saveFilters();
+    const btn = byId('loadAuditBtn');
+    setButtonBusy(btn, true, '載入中...');
+    try {
+      await loadAudit();
+      toast('稽核資料已更新', 'success');
+    } catch (e) {
+      toast(`載入稽核失敗：${e.message}`, 'error');
+    } finally {
+      setButtonBusy(btn, false);
+    }
+  });
 
-  byId('userQuery').addEventListener('input', renderUsers);
-  byId('statusFilter').addEventListener('change', renderUsers);
-  byId('auditActionFilter').addEventListener('input', renderAudit);
+  byId('userQuery').addEventListener('input', () => {
+    saveFilters();
+    renderUsers();
+  });
+
+  byId('statusFilter').addEventListener('change', () => {
+    saveFilters();
+    renderUsers();
+  });
+
+  byId('auditActionFilter').addEventListener('input', () => {
+    saveFilters();
+    renderAudit();
+  });
+
+  byId('auditTop').addEventListener('change', saveFilters);
 
   document.querySelectorAll('[data-tab]').forEach((btn) => {
     btn.addEventListener('click', () => showTab(btn.dataset.tab));
@@ -260,6 +369,7 @@ function registerEvents() {
     const userId = target.dataset.userId;
     const action = target.dataset.action;
 
+    setButtonBusy(target, true);
     if (action === 'approve') {
       await approveUser(userId, true);
     }
@@ -269,6 +379,7 @@ function registerEvents() {
     if (action === 'revoke') {
       await revokeSessions(userId);
     }
+    setButtonBusy(target, false);
   });
 }
 
@@ -277,14 +388,21 @@ async function bootstrapSession() {
     return;
   }
 
-  byId('loginCard').classList.add('hidden');
-  byId('app').classList.remove('hidden');
+  setAuthUi(true);
   byId('whoami').textContent = '使用既有 token session';
   await refreshAll();
 }
 
 function init() {
+  setUnauthorizedHandler(({ path }) => {
+    if (path !== '/auth/login') {
+      forceLogoutForExpiredSession();
+    }
+  });
+
   registerEvents();
+  restoreFilters();
+  showTab(state.activeTab, false);
   bootstrapSession();
 }
 

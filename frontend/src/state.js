@@ -3,5 +3,7 @@ export const state = {
   currentUser: null,
   users: [],
   audits: [],
-  mfaPolicy: null
+  mfaPolicy: null,
+  activeTab: sessionStorage.getItem('admin_active_tab') || 'overview',
+  sessionExpiredHandled: false
 };

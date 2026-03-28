@@ -263,6 +263,21 @@ th {
 .badge.active { background: #e9f9ef; }
 .badge.locked, .badge.rejected { background: #ffebee; }
 
+.status-line {
+  margin-bottom: 10px;
+  color: var(--sub);
+  font-size: 13px;
+  min-height: 18px;
+}
+
+.status-line.status--warn {
+  color: var(--warn);
+}
+
+.status-line.status--ok {
+  color: var(--ok);
+}
+
 .toast {
   position: fixed;
   right: 18px;
@@ -272,6 +287,18 @@ th {
   padding: 10px 12px;
   border-radius: 8px;
   max-width: 480px;
+}
+
+.toast.toast--error {
+  background: var(--danger);
+}
+
+.toast.toast--success {
+  background: #0f7d47;
+}
+
+.toast.toast--warn {
+  background: #9a5f00;
 }
 
 .hidden {
