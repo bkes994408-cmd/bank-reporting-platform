@@ -110,7 +110,17 @@ app.MapPost("/auth/login", (AppState state, SessionStore sessionStore, JwtTokenS
 
     if (user.LockoutEnd is not null && user.LockoutEnd > DateTimeOffset.UtcNow) return Results.BadRequest("Locked");
 
-    var passOk = user.IsAdUser ? ad.Validate(req.Email, req.Password) : SecurityHelpers.VerifyPassword(req.Password, user.PasswordHash);
+    var adResult = user.IsAdUser ? ad.Validate(req.Email, req.Password) : null;
+    var passOk = user.IsAdUser ? adResult!.IsSuccess : SecurityHelpers.VerifyPassword(req.Password, user.PasswordHash);
+
+    // AD 帳號在目錄服務不可用 / 設定錯誤時，不計入密碼錯誤次數，避免誤鎖帳號。
+    if (user.IsAdUser && adResult is { IsSuccess: false, IsCredentialFailure: false })
+    {
+        Audit(state, user.Id, user.Name, "AUTH-006", "Directory", user.Id.ToString(), $"Directory auth unavailable: {adResult.Status}", ctx);
+        Persist(state, sessions, storage);
+        return Results.Problem(title: "Directory authentication unavailable", detail: "AD/LDAP 服務目前不可用，請稍後再試或聯繫系統管理員。", statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+
     if (!passOk)
     {
         // 連續失敗超過門檻後鎖定 30 分鐘。

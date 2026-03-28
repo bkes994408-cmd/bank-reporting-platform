@@ -10,6 +10,7 @@
   <ItemGroup>
     <!-- SqlClient：SQL Server persistence；Jwt：token 發放/驗證。 -->
     <PackageReference Include="Microsoft.Data.SqlClient" Version="6.0.2" />
+    <PackageReference Include="System.DirectoryServices.Protocols" Version="10.0.0" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.11.0" />
   </ItemGroup>
 
