@@ -6,124 +6,202 @@
   <title>Bank Reporting Admin Console</title>
   <style>
     :root {
-      --bg: #f5f7fb;
-      --card: #ffffff;
-      --line: #d7deea;
+      --bg: #eef2f8;
+      --panel: #ffffff;
+      --panel-2: #f8fbff;
+      --line: #d6deea;
+      --line-strong: #c3cde0;
       --text: #1f2a44;
       --sub: #6a768f;
       --primary: #265dff;
+      --primary-weak: #e9efff;
       --ok: #0f9d58;
       --warn: #d97706;
       --danger: #c62828;
+      --shadow: 0 10px 28px rgba(31, 42, 68, 0.08);
+      --radius: 14px;
     }
     * { box-sizing: border-box; }
-    body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); }
-    .wrap { max-width: 1200px; margin: 0 auto; padding: 20px; }
-    .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 14px; }
-    h1, h2, h3 { margin: 0 0 8px; }
-    .muted { color: var(--sub); font-size: 13px; }
+    body { margin: 0; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: radial-gradient(circle at top, #f8fbff 0%, var(--bg) 40%, #e9eef7 100%); color: var(--text); }
+    .wrap { max-width: 1440px; margin: 0 auto; padding: 24px; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; margin-bottom: 16px; box-shadow: var(--shadow); }
+    h1, h2, h3, h4 { margin: 0; }
+    h1 { font-size: 28px; letter-spacing: .2px; }
+    h3 { font-size: 18px; }
+    h4 { font-size: 15px; color: var(--text); }
+    .muted { color: var(--sub); font-size: 13px; line-height: 1.45; }
     .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
     .grow { flex: 1; }
     input, select, button {
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 8px 10px;
+      border: 1px solid var(--line-strong);
+      border-radius: 10px;
+      padding: 9px 11px;
       font-size: 14px;
       background: #fff;
+      color: var(--text);
     }
-    button { cursor: pointer; }
+    input, select { min-height: 38px; }
+    input:focus, select:focus, button:focus { outline: 2px solid rgba(38, 93, 255, 0.16); outline-offset: 1px; }
+    button { cursor: pointer; transition: all .15s ease; }
+    button:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(31, 42, 68, 0.08); }
     button.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
     button.ok { background: var(--ok); color: #fff; border-color: var(--ok); }
     button.warn { background: var(--warn); color: #fff; border-color: var(--warn); }
     button.danger { background: var(--danger); color: #fff; border-color: var(--danger); }
-    button:disabled { opacity: 0.6; cursor: not-allowed; }
-    .nav button.active { background: #e9efff; border-color: #b9c9ff; }
-    .grid { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 10px; }
-    .kpi { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: #fcfdff; }
-    .kpi .v { font-size: 22px; font-weight: 700; margin-top: 4px; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; transform: none; box-shadow: none; }
+    .shell { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px; align-items: start; }
+    .sidebar { position: sticky; top: 16px; }
+    .sidebar .nav { display: grid; gap: 8px; }
+    .nav button { width: 100%; text-align: left; background: var(--panel-2); border-color: var(--line); }
+    .nav button.active { background: var(--primary-weak); border-color: #b9c9ff; color: #1438a6; font-weight: 600; }
+    .toolbar { justify-content: space-between; }
+    .toolbar .meta { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+    .grid { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 12px; }
+    .kpi { border: 1px solid var(--line); border-radius: 12px; padding: 14px; background: linear-gradient(180deg, #fff, #fafcff); }
+    .kpi .v { font-size: 24px; font-weight: 700; margin-top: 6px; }
+    .section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+    .filters { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .table-wrap { max-height: 60vh; overflow: auto; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
     table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    th, td { border-bottom: 1px solid var(--line); padding: 8px 6px; text-align: left; vertical-align: top; }
-    th { background: #f8fafe; position: sticky; top: 0; }
-    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); }
+    th, td { border-bottom: 1px solid var(--line); padding: 10px 8px; text-align: left; vertical-align: top; }
+    th { background: #f6f9fe; position: sticky; top: 0; z-index: 1; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--sub); }
+    tr:hover td { background: #fbfcff; }
+    .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); background: #fff; }
     .badge.pending { background: #fff7e6; }
     .badge.active { background: #e9f9ef; }
     .badge.locked, .badge.rejected { background: #ffebee; }
-    #usersTableWrap, #auditTableWrap { max-height: 58vh; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
     .hidden { display: none !important; }
-    #toast { position: fixed; right: 18px; bottom: 18px; background: #1f2a44; color: #fff; padding: 10px 12px; border-radius: 8px; max-width: 480px; }
+    #loginCard { max-width: 860px; margin: 0 auto 16px; }
+    #loginCard .login-grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 16px; }
+    #loginCard .hero { padding: 6px 0; }
+    #loginCard .form { display: grid; gap: 10px; align-content: start; }
+    #loginCard input { width: 100%; }
+    #usersTableWrap, #auditTableWrap { box-shadow: inset 0 1px 0 rgba(255,255,255,.6); }
+    #toast { position: fixed; right: 18px; bottom: 18px; background: #1f2a44; color: #fff; padding: 11px 13px; border-radius: 10px; max-width: 520px; box-shadow: var(--shadow); }
+    @media (max-width: 1100px) {
+      .shell { grid-template-columns: 1fr; }
+      .sidebar { position: static; }
+      .grid { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
+      #loginCard .login-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 720px) {
+      .wrap { padding: 14px; }
+      .grid { grid-template-columns: 1fr; }
+      .toolbar .meta { justify-content: flex-start; }
+      .section-head, .toolbar { align-items: stretch; }
+    }
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="card">
-      <div class="row">
+      <div class="row toolbar">
         <div class="grow">
           <h1>Bank Reporting 管理介面</h1>
-          <div class="muted">聚焦管理工作：登入/Session、使用者審核、稽核紀錄、快速總覽。</div>
+          <div class="muted">聚焦管理工作：登入 / Session、使用者審核、稽核紀錄、快速總覽。</div>
         </div>
-        <div>
-          <label class="muted">API Base</label><br />
-          <input id="apiBase" value="http://localhost:5000" style="min-width:240px" />
+        <div class="meta">
+          <div>
+            <label class="muted">API Base</label><br />
+            <input id="apiBase" value="http://localhost:5000" style="min-width:240px" />
+          </div>
         </div>
       </div>
     </div>
 
     <div id="loginCard" class="card">
-      <h3>登入</h3>
-      <div class="row">
-        <input id="email" placeholder="email" value="admin@bank.local" />
-        <input id="password" type="password" placeholder="password" value="Admin#12345678" />
-        <input id="mfaCode" placeholder="MFA code (optional)" style="width:160px" />
-        <button class="primary" onclick="login()">Login</button>
+      <div class="login-grid">
+        <div class="hero">
+          <h3>登入</h3>
+          <p class="muted" style="margin-top:8px">這個管理台以桌面操作為主，優先處理登入、審核、稽核與 session 管理。登入後會自動載入總覽與最新資料。</p>
+          <div class="row" style="margin-top:14px">
+            <span class="badge active">Admin Console</span>
+            <span class="badge">Enterprise UI</span>
+            <span class="badge">Desktop-first</span>
+          </div>
+        </div>
+        <div class="form">
+          <input id="email" placeholder="email" value="admin@bank.local" />
+          <input id="password" type="password" placeholder="password" value="Admin#12345678" />
+          <input id="mfaCode" placeholder="MFA code (optional)" />
+          <button class="primary" onclick="login()">Login</button>
+          <div class="muted">會優先使用 X-Auth-Token；若後端已有安全 cookie 也可嘗試載入。</div>
+        </div>
       </div>
-      <div class="muted">會優先使用 X-Auth-Token；若後端已有安全 cookie 也可嘗試載入。</div>
     </div>
 
-    <div id="app" class="hidden">
-      <div class="card row nav">
-        <button id="tabOverviewBtn" class="active" onclick="showTab('overview')">總覽</button>
-        <button id="tabUsersBtn" onclick="showTab('users')">使用者管理</button>
-        <button id="tabAuditBtn" onclick="showTab('audit')">稽核紀錄</button>
-        <div class="grow"></div>
-        <div id="whoami" class="muted"></div>
-        <button onclick="refreshAll()">重新整理</button>
-        <button class="warn" onclick="logout()">Logout</button>
-      </div>
-
-      <div id="tabOverview" class="card">
-        <h3>管理總覽</h3>
-        <div id="kpi" class="grid"></div>
-        <h4 style="margin-top:16px">最近 10 筆稽核事件</h4>
-        <div id="recentAudit"></div>
-      </div>
-
-      <div id="tabUsers" class="card hidden">
-        <div class="row" style="margin-bottom:8px">
-          <h3 class="grow">使用者管理</h3>
-          <input id="userQuery" placeholder="搜尋 email / name / institution" oninput="renderUsers()" />
-          <select id="statusFilter" onchange="renderUsers()">
-            <option value="all">全部狀態</option>
-            <option value="PendingApproval">PendingApproval</option>
-            <option value="Active">Active</option>
-            <option value="Rejected">Rejected</option>
-            <option value="Locked">Locked</option>
-          </select>
+    <div id="app" class="hidden shell">
+      <div class="card sidebar">
+        <div class="muted" style="margin-bottom:10px">主選單</div>
+        <div class="nav">
+          <button id="tabOverviewBtn" class="active" onclick="showTab('overview')">總覽</button>
+          <button id="tabUsersBtn" onclick="showTab('users')">使用者管理</button>
+          <button id="tabAuditBtn" onclick="showTab('audit')">稽核紀錄</button>
         </div>
-        <div id="usersTableWrap"><table id="usersTable"></table></div>
       </div>
 
-      <div id="tabAudit" class="card hidden">
-        <div class="row" style="margin-bottom:8px">
-          <h3 class="grow">稽核紀錄</h3>
-          <input id="auditActionFilter" placeholder="action contains..." oninput="renderAudit()" />
-          <select id="auditTop">
-            <option value="100">100</option>
-            <option value="200" selected>200</option>
-            <option value="500">500</option>
-          </select>
-          <button onclick="loadAudit()">載入</button>
+      <div>
+        <div class="card row toolbar" style="margin-bottom:16px">
+          <div>
+            <div class="muted">已登入</div>
+            <div id="whoami" style="font-weight:600"></div>
+          </div>
+          <div class="meta">
+            <button onclick="refreshAll()">重新整理</button>
+            <button class="warn" onclick="logout()">Logout</button>
+          </div>
         </div>
-        <div id="auditTableWrap"><table id="auditTable"></table></div>
+
+        <div id="tabOverview" class="card">
+          <div class="section-head">
+            <div>
+              <h3>管理總覽</h3>
+              <div class="muted">快速檢視關鍵營運指標與最近稽核事件。</div>
+            </div>
+          </div>
+          <div id="kpi" class="grid"></div>
+          <h4 style="margin-top:18px;margin-bottom:10px">最近 10 筆稽核事件</h4>
+          <div id="recentAudit"></div>
+        </div>
+
+        <div id="tabUsers" class="card hidden">
+          <div class="section-head">
+            <div>
+              <h3>使用者管理</h3>
+              <div class="muted">搜尋、核准、拒絕與撤銷 session。保留現有操作流程與 API 綁定。</div>
+            </div>
+            <div class="filters">
+              <input id="userQuery" placeholder="搜尋 email / name / institution" oninput="renderUsers()" />
+              <select id="statusFilter" onchange="renderUsers()">
+                <option value="all">全部狀態</option>
+                <option value="PendingApproval">PendingApproval</option>
+                <option value="Active">Active</option>
+                <option value="Rejected">Rejected</option>
+                <option value="Locked">Locked</option>
+              </select>
+            </div>
+          </div>
+          <div id="usersTableWrap" class="table-wrap"><table id="usersTable"></table></div>
+        </div>
+
+        <div id="tabAudit" class="card hidden">
+          <div class="section-head">
+            <div>
+              <h3>稽核紀錄</h3>
+              <div class="muted">支援 action 關鍵字過濾與筆數載入，適合快速追查異常。</div>
+            </div>
+            <div class="filters">
+              <input id="auditActionFilter" placeholder="action contains..." oninput="renderAudit()" />
+              <select id="auditTop">
+                <option value="100">100</option>
+                <option value="200" selected>200</option>
+                <option value="500">500</option>
+              </select>
+              <button onclick="loadAudit()">載入</button>
+            </div>
+          </div>
+          <div id="auditTableWrap" class="table-wrap"><table id="auditTable"></table></div>
+        </div>
       </div>
     </div>
   </div>
@@ -269,11 +347,11 @@
           </div>` : '';
 
         return `<tr>
-          <td>${esc(u.name)}<div class="muted">${esc(u.email)}</div></td>
+          <td><strong>${esc(u.name)}</strong><div class="muted">${esc(u.email)}</div></td>
           <td>${statusBadge(u.status)}</td>
           <td>${esc(u.role)}</td>
           <td>${esc(u.institutionCode || '-')}</td>
-          <td>${esc(u.department || '-')} / ${esc(u.title || '-')}</td>
+          <td>${esc(u.department || '-') } / ${esc(u.title || '-')}</td>
           <td>${u.mfaEnabled ? '✅' : '❌'}</td>
           <td>${u.isAdUser ? 'AD' : 'Local'}</td>
           <td>
