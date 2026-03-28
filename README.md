@@ -40,13 +40,14 @@
 - AES-256-GCM at-rest 加密
 
 ### 管理介面
-- 管理前端控制台（單頁模式）
+- 管理前端控制台（模組化單頁模式）
 - 登入 / 登出 / session handling
 - 總覽頁（KPI + 最近稽核事件）
 - 使用者管理（搜尋、篩選、核准 / 拒絕）
 - MFA 政策管理（scope / endpoint enforcement / session revocation）
 - Session 撤銷操作
 - 稽核紀錄查詢與篩選
+- 現代化 admin-console 版型（sidebar + card/table 視覺）
 
 ## 專案現況
 這個 repo 仍在持續開發中，但已經具備：
@@ -91,6 +92,12 @@
 
 ### 前端
 主要入口在 `frontend/`。
+
+目前前端已拆分為：
+- `frontend/index.html`：頁面骨架與語意化區塊
+- `frontend/src/styles.css`：集中樣式（admin-console 風格）
+- `frontend/src/main.js`：事件註冊與畫面流程
+- `frontend/src/api.js`、`frontend/src/dom.js`、`frontend/src/state.js`：API、DOM 工具與狀態管理
 
 ## 設定檔與環境變數
 專案已改為標準 ASP.NET Core 設定流程，載入順序如下（後者覆蓋前者）：
