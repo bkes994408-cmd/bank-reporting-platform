@@ -1,4 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <!-- 測試專案保持不可打包，避免測試依賴被誤發佈。 -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <IsPackable>false</IsPackable>
@@ -11,6 +12,7 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
   </ItemGroup>
   <ItemGroup>
+    <!-- 直接引用 API 專案以測試安全與核心 domain helper 行為。 -->
     <ProjectReference Include="..//backend/BankReporting.Api.csproj" />
   </ItemGroup>
 </Project>

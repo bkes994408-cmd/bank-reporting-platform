@@ -148,6 +148,8 @@
   <div id="toast" class="hidden"></div>
 
   <script>
+    // 管理頁狀態放在前端記憶體 + sessionStorage（僅暫存 token），
+    // 重新整理頁面可復用 token，但關閉分頁後不保留長期登入狀態。
     let token = sessionStorage.getItem('admin_token') || '';
     let currentUser = null;
     let users = [];
@@ -170,6 +172,10 @@
     }
 
     async function api(path, opt = {}) {
+      // API 呼叫統一入口：
+      // 1) 預設 JSON
+      // 2) 若有 token 走 X-Auth-Token
+      // 3) 同時帶 credentials 讓 HttpOnly cookie 可被送出
       const headers = { 'Content-Type': 'application/json', ...(opt.headers || {}) };
       if (token) headers['X-Auth-Token'] = token;
       const res = await fetch(apiBase() + path, { ...opt, headers, credentials: 'include' });
@@ -197,6 +203,7 @@
 
     async function login() {
       try {
+        // 後端回傳 token 會覆蓋既有 sessionStorage，避免殘留過期 token。
         const body = {
           email: byId('email').value.trim(),
           password: byId('password').value,
@@ -350,6 +357,7 @@
     }
 
     async function revokeSessions(userId) {
+      // 這是高影響操作：撤銷後使用者需重新登入。
       if (!confirm('確定要撤銷此使用者所有 active sessions？')) return;
       try {
         const data = await api(`/admin/users/${userId}/revoke-sessions`, { method: 'POST' });
@@ -362,6 +370,8 @@
 
     async function updateMfaPolicy() {
       try {
+        // revokeNonCompliantSessions=true 會立即影響現有登入，
+        // 建議先公告再執行，避免大量使用者同時被踢下線。
         const payload = {
           scope: byId('mfaScope').value,
           enforceOnPrivilegedEndpoints: byId('mfaEnforce').checked,
@@ -389,6 +399,8 @@
     }
 
     async function bootstrapSession() {
+      // 頁面啟動時若偵測到既有 token，先嘗試直接載入資料；
+      // 失敗時由 refreshAll/toast 呈現錯誤，使用者可手動重新登入。
       if (!token) return;
       byId('loginCard').classList.add('hidden');
       byId('app').classList.remove('hidden');
