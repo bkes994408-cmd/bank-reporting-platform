@@ -167,7 +167,11 @@
 - `dotnet test backend.tests/BankReporting.Tests.csproj`
 - 前端 build（`npm run build`）
 
+## 文件索引
+- 建置與本機啟動指南（繁中）：`docs/BUILD_SETUP_GUIDE_ZH_TW.md`
+- AD/LDAP 第一階段細節：`docs/AD_LDAP_INTEGRATION_SLICE1.md`
+- Production readiness：`docs/PRODUCTION_READINESS_STATUS.md`
+
 ## 備註
 - Repo 名稱：`bank-reporting-platform`
 - 這是新專案，不沿用舊的 legacy repo
-- AD/LDAP 第一階段細節請見：`docs/AD_LDAP_INTEGRATION_SLICE1.md`
