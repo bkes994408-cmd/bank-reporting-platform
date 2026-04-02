@@ -3,6 +3,7 @@ import { byId, esc, setButtonBusy, toast } from './dom.js';
 import { api, setUnauthorizedHandler } from './api.js';
 
 const tabs = ['overview', 'users', 'audit'];
+const THEME_KEY = 'admin_theme';
 
 function setAuthUi(loggedIn) {
   byId('loginCard').classList.toggle('hidden', loggedIn);
@@ -24,6 +25,34 @@ function setLoading(loading, text = '資料更新中...') {
   }
   document.body.classList.toggle('is-loading', loading);
   byId('refreshBtn').disabled = loading;
+}
+
+function applyTheme(mode) {
+  const next = mode === 'dark' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = next;
+  const btn = byId('themeToggle');
+  if (btn) {
+    const dark = next === 'dark';
+    btn.textContent = dark ? '☀️ 明亮模式' : '🌙 暗黑模式';
+    btn.setAttribute('aria-pressed', dark ? 'true' : 'false');
+  }
+}
+
+function initTheme() {
+  const saved = localStorage.getItem(THEME_KEY);
+  if (saved === 'dark' || saved === 'light') {
+    applyTheme(saved);
+    return;
+  }
+
+  const prefersDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches;
+  applyTheme(prefersDark ? 'dark' : 'light');
+}
+
+function toggleTheme() {
+  const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+  localStorage.setItem(THEME_KEY, next);
+  applyTheme(next);
 }
 
 function saveFilters() {
@@ -360,6 +389,8 @@ function registerEvents() {
   byId('logoutBtn').addEventListener('click', logout);
   byId('refreshBtn').addEventListener('click', () => refreshAll(byId('refreshBtn')));
   byId('updateMfaBtn').addEventListener('click', updateMfaPolicy);
+  byId('themeToggle').addEventListener('click', toggleTheme);
+
   byId('loadAuditBtn').addEventListener('click', async () => {
     saveFilters();
     const btn = byId('loadAuditBtn');
@@ -435,6 +466,7 @@ function init() {
     }
   });
 
+  initTheme();
   registerEvents();
   restoreFilters();
   showTab(state.activeTab, false);
