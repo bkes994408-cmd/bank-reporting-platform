@@ -7,6 +7,7 @@ const tabs = ['overview', 'users', 'audit'];
 function setAuthUi(loggedIn) {
   byId('loginCard').classList.toggle('hidden', loggedIn);
   byId('app').classList.toggle('hidden', !loggedIn);
+  document.body.classList.toggle('is-authenticated', loggedIn);
 }
 
 function setTopStatus(text = '', tone = 'muted') {
@@ -21,6 +22,7 @@ function setLoading(loading, text = '資料更新中...') {
   if (loading) {
     setTopStatus(text);
   }
+  document.body.classList.toggle('is-loading', loading);
   byId('refreshBtn').disabled = loading;
 }
 
@@ -61,6 +63,8 @@ function renderOverview() {
   const active = state.users.filter((u) => u.status === 'Active').length;
   const locked = state.users.filter((u) => u.status === 'Locked').length;
   const admins = state.users.filter((u) => u.role === 'Admin').length;
+  const adUsers = state.users.filter((u) => u.isAdUser).length;
+  const localUsers = state.users.filter((u) => !u.isAdUser).length;
 
   byId('kpi').innerHTML = [
     ['總使用者', state.users.length],
@@ -68,19 +72,26 @@ function renderOverview() {
     ['已啟用', active],
     ['鎖定', locked],
     ['管理員', admins],
-    ['稽核事件', state.audits.length],
-    ['本次登入角色', state.currentUser?.role || '-'],
-    ['本次登入信箱', state.currentUser?.email || '-']
+    ['AD 使用者', adUsers],
+    ['Local 使用者', localUsers],
+    ['稽核事件', state.audits.length]
   ]
     .map(([k, v]) => `<div class="kpi"><div class="muted">${esc(k)}</div><div class="v">${esc(v)}</div></div>`)
     .join('');
+
+  const overview = byId('tabOverview');
+  if (overview) {
+    overview.dataset.count = `${state.users.length} users`;
+  }
 }
 
 function renderRecentAudit() {
   const rows = state.audits.slice(0, 10).map((a) => `<tr>
     <td>${esc(new Date(a.at).toLocaleString())}</td>
     <td>${esc(a.action)}</td>
-    <td>${esc(a.userName || '-')}</td>
+    <td>${esc(a.userName || '-')}
+      <div class="muted">${esc(a.userRole || '')}</div>
+    </td>
     <td>${esc(a.entityType)} / ${esc(a.entityId)}</td>
     <td>${esc(a.summary)}</td>
     <td>${esc(a.ipAddress || '-')}</td>
@@ -100,19 +111,25 @@ function renderUsers() {
     return matchQ && matchS;
   });
 
+  const empty = `<tr><td colspan="8" class="muted empty-state">沒有符合條件的使用者</td></tr>`;
   const rows = filtered.map((u) => {
     const pendingControls = u.status === 'PendingApproval' ? `
-      <div class="row" style="margin-top:6px">
+      <div class="inline-actions">
         <select id="role-${u.id}">
           ${['Clerk', 'Supervisor', 'ReadOnly', 'Admin'].map((r) => `<option value="${r}" ${u.role === r ? 'selected' : ''}>${r}</option>`).join('')}
         </select>
-        <input id="inst-${u.id}" value="${esc(u.institutionCode || '')}" placeholder="Institution" style="width:110px" />
+        <input id="inst-${u.id}" value="${esc(u.institutionCode || '')}" placeholder="Institution" class="inline-input" />
         <button class="ok" data-action="approve" data-user-id="${u.id}">核准</button>
         <button class="danger" data-action="reject" data-user-id="${u.id}">拒絕</button>
       </div>` : '';
 
     return `<tr>
-      <td>${esc(u.name)}<div class="muted">${esc(u.email)}</div></td>
+      <td>
+        <div class="user-cell">
+          <strong>${esc(u.name)}</strong>
+          <div class="muted">${esc(u.email)}</div>
+        </div>
+      </td>
       <td>${statusBadge(u.status)}</td>
       <td>${esc(u.role)}</td>
       <td>${esc(u.institutionCode || '-')}</td>
@@ -120,15 +137,22 @@ function renderUsers() {
       <td>${u.mfaEnabled ? '✅' : '❌'}</td>
       <td>${u.isAdUser ? 'AD' : 'Local'}</td>
       <td>
-        <button data-action="revoke" data-user-id="${u.id}">Revoke Sessions</button>
-        ${pendingControls}
+        <div class="inline-actions">
+          <button data-action="revoke" data-user-id="${u.id}">Revoke Sessions</button>
+          ${pendingControls}
+        </div>
       </td>
     </tr>`;
   }).join('');
 
   byId('usersTable').innerHTML = `<thead><tr>
     <th>使用者</th><th>狀態</th><th>角色</th><th>機構</th><th>部門/職稱</th><th>MFA</th><th>Auth</th><th>操作</th>
-  </tr></thead><tbody>${rows || '<tr><td colspan="8" class="muted">無符合資料</td></tr>'}</tbody>`;
+  </tr></thead><tbody>${rows || empty}</tbody>`;
+
+  const usersPanel = byId('tabUsers');
+  if (usersPanel) {
+    usersPanel.dataset.count = `${filtered.length} users`;
+  }
 
   renderOverview();
 }
@@ -137,10 +161,16 @@ function renderAudit() {
   const q = byId('auditActionFilter').value.trim().toLowerCase();
   const filtered = state.audits.filter((a) => !q || (a.action || '').toLowerCase().includes(q) || (a.summary || '').toLowerCase().includes(q));
 
+  const empty = `<tr><td colspan="7" class="muted empty-state">目前沒有稽核紀錄</td></tr>`;
   const rows = filtered.map((a) => `<tr>
     <td>${esc(new Date(a.at).toLocaleString())}</td>
-    <td>${esc(a.action)}</td>
-    <td>${esc(a.userName || '-')}</td>
+    <td><span class="audit-action">${esc(a.action)}</span></td>
+    <td>
+      <div class="user-cell">
+        <strong>${esc(a.userName || '-')}</strong>
+        <div class="muted">${esc(a.userRole || '-')}</div>
+      </div>
+    </td>
     <td>${esc(a.entityType)}</td>
     <td>${esc(a.entityId)}</td>
     <td>${esc(a.summary)}</td>
@@ -148,7 +178,12 @@ function renderAudit() {
   </tr>`).join('');
 
   byId('auditTable').innerHTML = `<thead><tr><th>時間</th><th>Action</th><th>User</th><th>Entity</th><th>ID</th><th>Summary</th><th>IP</th></tr></thead>
-    <tbody>${rows || '<tr><td colspan="7" class="muted">無資料</td></tr>'}</tbody>`;
+    <tbody>${rows || empty}</tbody>`;
+
+  const auditPanel = byId('tabAudit');
+  if (auditPanel) {
+    auditPanel.dataset.count = `${filtered.length} events`;
+  }
 
   renderOverview();
 }

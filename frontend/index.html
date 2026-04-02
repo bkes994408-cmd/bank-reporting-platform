@@ -38,16 +38,38 @@
     </aside>
 
     <main class="content">
-      <section id="loginCard" class="panel panel--narrow">
-        <header class="panel__header">
-          <h2>登入</h2>
-          <p class="muted">會優先使用 X-Auth-Token；若後端已有安全 cookie 也可嘗試載入。</p>
+      <section id="loginCard" class="panel panel--narrow auth-shell">
+        <header class="panel__header auth-shell__header">
+          <p class="eyebrow">Secure access</p>
+          <h2>銀行監理資料數位申報平台</h2>
+          <p class="muted">以安全 Cookie / X-Auth-Token 登入，進入申報、權限與稽核工作台。</p>
         </header>
-        <div class="grid-form">
-          <input id="email" placeholder="email" value="admin@bank.local" />
-          <input id="password" type="password" placeholder="password" value="Admin#12345678" />
-          <input id="mfaCode" placeholder="MFA code (optional)" />
-          <button id="loginBtn" class="primary">Login</button>
+        <div class="auth-grid">
+          <div class="auth-hero">
+            <div class="auth-hero__badge">Production Console</div>
+            <h3>集中管理申報、驗證與稽核留痕</h3>
+            <p>為管理者提供乾淨、快速、可追溯的操作介面。強調狀態、權限與證據，不做多餘裝飾。</p>
+            <ul>
+              <li>JWT / MFA / Session 管理</li>
+              <li>AD / LDAP 驗證整合</li>
+              <li>稽核事件與安全操作追蹤</li>
+            </ul>
+          </div>
+          <form class="auth-form" onsubmit="return false;">
+            <label>
+              <span>Email</span>
+              <input id="email" placeholder="email" value="admin@bank.local" />
+            </label>
+            <label>
+              <span>Password</span>
+              <input id="password" type="password" placeholder="password" value="Admin#12345678" />
+            </label>
+            <label>
+              <span>MFA code <span class="muted">(optional)</span></span>
+              <input id="mfaCode" placeholder="MFA code" />
+            </label>
+            <button id="loginBtn" class="primary auth-form__submit">Login</button>
+          </form>
         </div>
       </section>
 
@@ -56,17 +78,24 @@
 
         <section id="tabOverview" class="panel">
           <header class="panel__header">
+            <p class="eyebrow">Operational view</p>
             <h2>管理總覽</h2>
             <p class="muted">快速掌握帳號狀態、稽核活動與目前登入資訊。</p>
           </header>
           <div id="kpi" class="kpi-grid"></div>
-          <h3>最近 10 筆稽核事件</h3>
+          <div class="section-head">
+            <h3>最近 10 筆稽核事件</h3>
+            <p class="muted">顯示最關鍵的操作軌跡，方便快速追查。</p>
+          </div>
           <div id="recentAudit" class="table-wrap"></div>
         </section>
 
         <section id="tabUsers" class="panel hidden">
           <header class="panel__header row row--between">
-            <h2>使用者管理</h2>
+            <div>
+              <p class="eyebrow">Access control</p>
+              <h2>使用者管理</h2>
+            </div>
             <div class="row">
               <input id="userQuery" placeholder="搜尋 email / name / institution" />
               <select id="statusFilter">
@@ -104,7 +133,10 @@
 
         <section id="tabAudit" class="panel hidden">
           <header class="panel__header row row--between">
-            <h2>稽核紀錄</h2>
+            <div>
+              <p class="eyebrow">Audit trail</p>
+              <h2>稽核紀錄</h2>
+            </div>
             <div class="row">
               <input id="auditActionFilter" placeholder="action contains..." />
               <select id="auditTop">
